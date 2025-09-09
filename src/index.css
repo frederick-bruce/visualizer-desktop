@@ -1,0 +1,186 @@
+@import "tailwindcss";
+
+
+:root { color-scheme: dark; }
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+
+:root {
+	--accent: #1DB954; /* spotify green */
+	--accent-2: #ffc857; /* secondary warm accent */
+	--bg-1: #071014;
+	--bg-2: #0b1115;
+}
+
+/* custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar { width: 10px; }
+.custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+.custom-scrollbar::-webkit-scrollbar-thumb { background: linear-gradient(180deg, rgba(255,200,87,0.12), rgba(255,200,87,0.06)); border-radius: 8px; }
+
+.accent { color: var(--accent) }
+.bg-accent { background: var(--accent) }
+.text-accent { color: var(--accent) }
+.bg-card { background: rgba(255,255,255,0.02) }
+.accent-accent { accent-color: var(--accent) }
+
+/* Windows Media Player-like chrome */
+.wmp-shell { background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.15)); }
+.wmp-panel { background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.06)); border-radius: 12px; }
+.wmp-title { font-weight: 700; letter-spacing: 0.4px; }
+.player-progress { height: 6px; background: rgba(255,255,255,0.06); border-radius: 999px; overflow: hidden; }
+.player-progress > .bar { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); width: 0%; }
+.transport-btn { transition: transform .12s ease, opacity .12s ease; }
+.transport-btn:hover { transform: translateY(-2px); opacity: 0.95; }
+.album-art { box-shadow: 0 6px 20px rgba(0,0,0,0.6); border-radius: 6px; }
+
+/* WMP Top Bar */
+.wmp-topbar { height: 40px; border-radius: 8px; padding: 0 6px; display: flex; align-items: center; background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.25)); box-shadow: inset 0 1px 0 rgba(255,255,255,0.05), inset 0 -1px 0 rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.35); }
+.wmp-topbar-inner { display: flex; gap: 4px; }
+.wmp-tab { position: relative; height: 28px; padding: 0 12px; border-radius: 6px; color: rgba(255,255,255,0.8); font-size: 12px; letter-spacing: .2px; background: linear-gradient(180deg, rgba(0,0,0,0.2), rgba(255,255,255,0.04)); border: 1px solid rgba(0,0,0,0.5); box-shadow: inset 0 1px 0 rgba(255,255,255,0.08), inset 0 -1px 0 rgba(0,0,0,0.5); }
+.wmp-tab:hover { filter: brightness(1.1); }
+.wmp-tab.active { color: #111; font-weight: 700; background: linear-gradient(180deg, #8bc0ff, #4fa1ff); border-color: rgba(0,0,0,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.5), 0 2px 6px rgba(0,0,0,0.4); }
+
+/* WMP style transport primary */
+.btn-primary-round { background: linear-gradient(180deg, #7fb7ff, #499cff); border: 1px solid rgba(0,0,0,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.6), 0 6px 18px rgba(0,0,0,0.5); color: #0b1826; }
+.btn-primary-round:hover { filter: brightness(1.05); }
+.btn-ghost-round { background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(0,0,0,0.3)); border: 1px solid rgba(0,0,0,0.6); box-shadow: inset 0 1px 0 rgba(255,255,255,0.06); }
+
+/* WMP progress bar */
+.progress-slider { height: 6px; background: linear-gradient(180deg, rgba(255,255,255,0.12), rgba(0,0,0,0.4)); border: 1px solid rgba(0,0,0,0.6); }
+.progress-slider::-webkit-slider-thumb { width: 14px; height: 14px; border: 1px solid rgba(0,0,0,0.5); background: linear-gradient(180deg, #9bd1ff, #4ea2ff); }
+
+/* glass cards */
+.glass { background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.04); backdrop-filter: blur(6px); }
+
+/* visualizer tabs */
+.viz-tabs { display: inline-flex; gap: 6px; }
+.viz-tab { padding: 6px 12px; border-radius: 999px; background: rgba(255,255,255,0.03); cursor: pointer; transition: all .15s ease; }
+.viz-tab:hover { transform: translateY(-2px); background: rgba(255,255,255,0.05); }
+.viz-tab.active { background: linear-gradient(90deg, rgba(29,185,84,0.9), rgba(255,200,87,0.95)); color: black; font-weight: 700; }
+
+/* responsive sidebar collapse */
+@media (max-width: 900px) {
+	.sidebar-collapsed { width: 72px !important }
+	.sidebar-hide-text { display: none }
+}
+
+/* subtle animated background for depth */
+.viz-bg { opacity: 0.06; background: radial-gradient(circle at 10% 20%, rgba(29,185,84,0.06), transparent 8%), radial-gradient(circle at 80% 80%, rgba(255,200,87,0.04), transparent 12%); }
+
+/* smooth motion for UI elements */
+.transition-smooth { transition: all .18s cubic-bezier(.2,.8,.2,1); }
+
+/* Typography scale */
+.typo-h1 { @apply text-xl font-semibold tracking-tight leading-snug; }
+.typo-h2 { @apply text-lg font-medium leading-snug; }
+/* Tailwind v4 can't apply custom classes; set color directly here. */
+.typo-body { @apply text-sm leading-relaxed; color: rgba(255,255,255,0.7); }
+.muted { color: rgba(255,255,255,0.6); }
+.typo-num { @apply tabular-nums; }
+
+/* additional sidebar and viz styles (appended) */
+:root { --accent-dynamic: var(--accent); }
+
+.sidebar-hide-text { display: block; }
+.sidebar-collapsed .sidebar-hide-text { display: none !important; }
+.sidebar-collapsed { width: 64px; }
+
+.viz-tabs { display: flex; gap: .5rem; margin-top: .25rem; }
+.viz-tab { padding: .4rem .6rem; font-size: .85rem; border-radius: 999px; background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01)); color: #fff; cursor: pointer; border: 1px solid rgba(255,255,255,0.04); }
+.viz-tab:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.35); }
+.viz-tab.active { background: linear-gradient(90deg, var(--accent-dynamic), rgba(255,255,255,0.02)); color: #000; font-weight: 600; border-color: rgba(0,0,0,0.08); }
+
+@media (max-width: 920px) {
+	.sidebar-hide-text { display: none; }
+}
+
+/* visualizer center stage */
+.visualizer-stage { position: relative; display: flex; align-items: center; justify-content: center; }
+.visualizer-glow { width: 100%; height: 100%; background: radial-gradient(circle at center, rgba(29,185,84,0.08), transparent 45%); filter: blur(24px); pointer-events: none; }
+.visualizer-inner { position: relative; z-index: 1; width: 100%; height: 100%; }
+
+/* hidden scrollbar + fade mask for sidebar */
+.scrollbar-hidden { scrollbar-width: none; }
+.scrollbar-hidden::-webkit-scrollbar { display: none; }
+.fade-mask-bottom { mask-image: linear-gradient(to bottom, black 80%, transparent 100%); -webkit-mask-image: linear-gradient(to bottom, black 80%, transparent 100%); }
+
+/* clamp 2 lines */
+.clamp-2 {
+	display: -webkit-box;
+	-webkit-line-clamp: 2;
+	-webkit-box-orient: vertical;
+	overflow: hidden;
+}
+
+/* Spotify-like progress range slider */
+.progress-slider {
+	-webkit-appearance: none;
+	appearance: none;
+	height: 4px; /* thin track */
+	background: rgba(255,255,255,0.12);
+	border-radius: 999px;
+	outline: none;
+}
+.progress-slider::-webkit-slider-thumb {
+	-webkit-appearance: none;
+	appearance: none;
+	width: 12px; height: 12px; border-radius: 50%;
+	background: var(--accent-dynamic);
+	border: 2px solid rgba(0,0,0,0.2);
+	box-shadow: 0 0 0 0 rgba(255,255,255,0);
+	transition: box-shadow .12s ease;
+}
+.progress-slider:focus-visible::-webkit-slider-thumb {
+	box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent-dynamic) 24%, transparent);
+}
+.progress-slider::-moz-range-thumb {
+	width: 12px; height: 12px; border-radius: 50%;
+	background: var(--accent-dynamic);
+	border: 2px solid rgba(0,0,0,0.2);
+}
+.progress-slider::-moz-range-track {
+	height: 4px;
+	background: rgba(255,255,255,0.12);
+	border-radius: 999px;
+}
+
+/* album card with soft accent glow */
+.album-card {
+	box-shadow: 0 8px 28px rgba(0,0,0,0.45), 0 0 0 2px rgba(255,255,255,0.06), 0 0 40px -8px var(--accent-dynamic);
+}
+.album-reflection {
+	position: absolute;
+	top: 0; left: 0; right: 0; height: 20%;
+	background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0));
+	pointer-events: none;
+}
+
+/* marquee on hover for long text */
+.marquee {
+	overflow: hidden;
+	white-space: nowrap;
+}
+.marquee-inner {
+	display: inline-block;
+	padding-left: 0;
+	will-change: transform;
+}
+.marquee:hover .marquee-inner {
+	animation: marquee-scroll 6s linear infinite;
+}
+@keyframes marquee-scroll {
+	0% { transform: translateX(0); }
+	100% { transform: translateX(-40%); }
+}
+
+/* glass panel behind visualizer */
+.panel-glass {
+	border: 1px solid rgba(255,255,255,0.10);
+	background: linear-gradient(180deg, rgba(0,0,0,0.45), rgba(255,255,255,0.04));
+	backdrop-filter: blur(8px);
+	border-radius: 1.5rem; /* 24px rounded-2xl */
+}
+
+/* responsive aspect ratios for visualizer */
+.aspect-16-9 { aspect-ratio: 16 / 9; }
+.aspect-4-5 { aspect-ratio: 4 / 5; }
