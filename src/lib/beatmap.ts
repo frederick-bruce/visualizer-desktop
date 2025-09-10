@@ -26,3 +26,18 @@ const phase = (t - b.start) / b.duration
 const spike = Math.max(0, 1 - phase) // decay over beat
 return base * (0.6 + 0.8 * spike)
 }
+
+export function bpmAt(tl: Timeline, t: number): number | undefined {
+	const section = tl.sections.find(s => t >= s.start && t < s.start + s.duration)
+	return section?.tempo
+}
+
+// Placeholder band energy computation until real FFT integration
+export function computeBandAverages(sampleTime: number, bands = 8): number[] {
+	const arr: number[] = []
+	for (let i = 0; i < bands; i++) {
+		const f = 0.5 + i * 0.15
+		arr.push(0.5 + 0.5 * Math.sin(sampleTime * f + i))
+	}
+	return arr
+}

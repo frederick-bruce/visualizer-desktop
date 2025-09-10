@@ -12,6 +12,7 @@ deviceId: string | null
 isPlaying: boolean
 volume: number
 visualizer: 'bars' | 'wave' | 'particles'
+	renderMode: 'raf' | 'max'
 	// user profile and library
 	profile: { displayName?: string; avatarUrl?: string } | null
 	playlists: any[]
@@ -19,6 +20,7 @@ visualizer: 'bars' | 'wave' | 'particles'
 	sidebarCollapsed: boolean
 	setSidebarCollapsed: (b: boolean) => void
 setVisualizer: (v: PlayerState['visualizer']) => void
+setRenderMode: (m: PlayerState['renderMode']) => void
 setTokens: (a: string, r: string | null) => void
 setAuthed: (b: boolean) => void
 	setProfile: (p: PlayerState['profile']) => void
@@ -40,6 +42,7 @@ deviceId: null,
 isPlaying: false,
 volume: 0.6,
 visualizer: 'bars',
+renderMode: 'raf',
 profile: null,
 playlists: [],
 sidebarCollapsed: (() => {
@@ -48,6 +51,7 @@ sidebarCollapsed: (() => {
 })(),
  authError: null,
 setVisualizer: (v) => set({ visualizer: v }),
+setRenderMode: (m) => set({ renderMode: m }),
 setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
 setAuthed: (b) => set({ isAuthed: b }),
 setProfile: (p) => set({ profile: p }),

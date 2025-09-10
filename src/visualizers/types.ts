@@ -5,6 +5,7 @@ export type VizCtx = {
   time: number // seconds
   intensity: number // 0..~2
   bpm?: number
+  bandAverages?: number[] // low -> high frequency energy 0..1
 }
 
 export type Visualizer = (vc: VizCtx) => void
