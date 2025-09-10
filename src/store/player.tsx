@@ -1,7 +1,8 @@
 import { create } from 'zustand'
 import { devtools } from 'zustand/middleware'
-import { authorize, logout as doLogout } from '@/lib/spotifyAuth'
-import { initPlayer, disconnectPlayer } from '@/lib/useSpotifyPlayer'
+import { initiateAuth, logout as authLogout } from '@/lib/spotifyAuth'
+import { disconnectPlayer } from '@/lib/useSpotifyPlayer'
+import { getAccessToken } from '@/lib/spotifyAuth'
 
 
 interface PlayerState {
@@ -14,6 +15,10 @@ volume: number
 	prevVolume?: number
 	mute: () => void
 	unmute: () => void
+	progressMs?: number
+	durationMs?: number
+	track?: { id?: string; name?: string; artists?: string; albumArt?: string }
+	contextUri?: string | null
 visualizer: 'bars' | 'wave' | 'particles'
 	renderMode: 'raf' | 'max'
 	vizSettings: {
@@ -54,6 +59,15 @@ logout: () => void
 setDeviceId: (id: string | null) => void
 setIsPlaying: (b: boolean) => void
 setVolume: (v: number) => void
+	// Unified controls
+	play: (uri?: string) => Promise<void>
+	pause: () => Promise<void>
+	toggle: () => Promise<void>
+	next: () => Promise<void>
+	prev: () => Promise<void>
+	seek: (ms: number) => Promise<void>
+	setPlayerVolume: (v: number) => Promise<void>
+	queue: (uri: string) => Promise<void>
 }
 
 
@@ -158,9 +172,64 @@ setReduceMotion: (b) => { set({ reduceMotion: b }); try { localStorage.setItem('
 setStyleMode: (m) => { set({ styleMode: m }); try { localStorage.setItem('styleMode', m) } catch {} },
 setAuthError: (s) => set({ authError: s }),
 setSidebarCollapsed: (b) => { set({ sidebarCollapsed: b }); try { localStorage.setItem('sidebarCollapsed', JSON.stringify(b)) } catch {} },
-login: async () => { try { await authorize(); set({ authError: null }) } catch (err: any) { set({ authError: String(err?.message || err) }); } },
-logout: async () => { await doLogout(); disconnectPlayer(); set({ isAuthed: false, accessToken: null, refreshToken: null, deviceId: null, isPlaying: false, profile: null, playlists: [] }); },
+login: async () => { try { await initiateAuth(); set({ authError: null }) } catch (err: any) { set({ authError: String(err?.message || err) }); } },
+logout: async () => { await authLogout(); disconnectPlayer(); set({ isAuthed: false, accessToken: null, refreshToken: null, deviceId: null, isPlaying: false, profile: null, playlists: [] }); },
 setDeviceId: (id) => set({ deviceId: id }),
 setIsPlaying: (b) => set({ isPlaying: b }),
 setVolume: (v) => set({ volume: v })
+	,
+	play: async (uri?: string) => {
+		const state = get()
+		try {
+			const token = await getAccessToken()
+			if (!token) throw new Error('No token')
+			// If SDK player present and no specific URI, just resume
+			const p: any = (window as any)._player
+			if (uri) {
+				await fetch(`https://api.spotify.com/v1/me/player/play`, {
+					method: 'PUT',
+					headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+					body: JSON.stringify({ uris: [uri] })
+				})
+			} else if (p?.resume) {
+				await p.resume()
+			} else {
+				await fetch(`https://api.spotify.com/v1/me/player/play`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } })
+			}
+			set({ isPlaying: true })
+		} catch (e) { console.warn('play error', e) }
+	},
+	pause: async () => {
+		const token = await getAccessToken()
+		const p: any = (window as any)._player
+		try {
+			if (p?.pause) await p.pause(); else await fetch(`https://api.spotify.com/v1/me/player/pause`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } })
+			set({ isPlaying: false })
+		} catch (e) { console.warn('pause error', e) }
+	},
+	toggle: async () => {
+		const { isPlaying, play, pause } = get()
+		if (isPlaying) await pause(); else await play()
+	},
+	next: async () => {
+		const token = await getAccessToken(); try { await fetch(`https://api.spotify.com/v1/me/player/next`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } }) } catch(e){ console.warn('next error', e) }
+	},
+	prev: async () => {
+		const token = await getAccessToken(); try { await fetch(`https://api.spotify.com/v1/me/player/previous`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } }) } catch(e){ console.warn('prev error', e) }
+	},
+	seek: async (ms: number) => {
+		const token = await getAccessToken(); try { await fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${ms}`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } }); set({ progressMs: ms }) } catch(e){ console.warn('seek error', e) }
+	},
+	setPlayerVolume: async (v: number) => {
+		set({ volume: v })
+		const token = await getAccessToken();
+		const p: any = (window as any)._player
+		try {
+			if (p?.setVolume) await p.setVolume(v)
+			else await fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=${Math.round(v*100)}`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } })
+		} catch(e) { console.warn('volume error', e) }
+	},
+	queue: async (uri: string) => {
+		const token = await getAccessToken(); try { await fetch(`https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } }) } catch(e){ console.warn('queue error', e) }
+	}
 })))

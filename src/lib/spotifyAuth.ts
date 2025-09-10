@@ -1,36 +1,31 @@
-// PKCE client-side OAuth helpers for Spotify
-// Provides: authorize(), handleAuthRedirect(), getAccessToken(), logout()
-
+// Simplified PKCE (redirect back to webview route /callback). No external Tauri plugins.
 const CLIENT_ID = String(import.meta.env.VITE_SPOTIFY_CLIENT_ID || '')
+const SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-email user-read-private playlist-read-private playlist-read-collaborative streaming app-remote-control'
 const REDIRECT_URI = String(import.meta.env.VITE_REDIRECT_URI || 'http://localhost:5173/callback')
-const SCOPES = String((import.meta.env.VITE_SPOTIFY_SCOPES) || 'user-read-playback-state user-modify-playback-state user-read-currently-playing playlist-read-private')
 
-function randomString(length = 32) {
+function randomString(len = 64) {
 	const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789'
-	let out = ''
-	for (let i = 0; i < length; i++) out += chars.charAt(Math.floor(Math.random() * chars.length))
-	return out
+	let o = ''
+	for (let i=0;i<len;i++) o += chars[Math.floor(Math.random()*chars.length)]
+	return o
 }
-
 async function sha256(input: string) {
 	const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
 	const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
-	// base64url
-	return b64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+	return b64.replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'')
 }
 
-export async function authorize() {
-	if (!CLIENT_ID) {
-		console.error('Missing VITE_SPOTIFY_CLIENT_ID - set VITE_SPOTIFY_CLIENT_ID in your .env')
-		throw new Error('Missing VITE_SPOTIFY_CLIENT_ID')
-	}
+let inFlightRefresh: Promise<string | null> | null = null
+
+export async function initiateAuth() {
+	if (!CLIENT_ID) throw new Error('Missing CLIENT_ID')
 	const codeVerifier = randomString(64)
 	const codeChallenge = await sha256(codeVerifier)
 	const state = randomString(16)
-
+	const nonce = randomString(12)
 	sessionStorage.setItem('pkce_code_verifier', codeVerifier)
 	sessionStorage.setItem('oauth_state', state)
-
+	sessionStorage.setItem('oauth_nonce', nonce)
 	const params = new URLSearchParams({
 		response_type: 'code',
 		client_id: CLIENT_ID,
@@ -40,8 +35,8 @@ export async function authorize() {
 		code_challenge: codeChallenge,
 		state,
 	})
-
-	window.location.href = `https://accounts.spotify.com/authorize?${params.toString()}`
+	const url = `https://accounts.spotify.com/authorize?${params.toString()}`
+	window.location.href = url
 }
 
 export async function handleAuthRedirect() {
@@ -50,9 +45,7 @@ export async function handleAuthRedirect() {
 	const state = url.searchParams.get('state')
 	const storedState = sessionStorage.getItem('oauth_state')
 	const codeVerifier = sessionStorage.getItem('pkce_code_verifier')
-
-	if (!code || !state || state !== storedState || !codeVerifier) throw new Error('Auth failed')
-
+	if (!code || !state || state !== storedState || !codeVerifier) return
 	const form = new URLSearchParams({
 		grant_type: 'authorization_code',
 		code,
@@ -60,68 +53,64 @@ export async function handleAuthRedirect() {
 		client_id: CLIENT_ID,
 		code_verifier: codeVerifier,
 	})
-
-	const res = await fetch('https://accounts.spotify.com/api/token', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: form,
-	})
-
-	if (!res.ok) throw new Error('Token exchange failed')
-	const data = (await res.json()) as { access_token: string; refresh_token?: string; expires_in: number }
-
-	// Persist tokens (simple localStorage here; consider Tauri secure storage for prod)
+	const res = await fetch('https://accounts.spotify.com/api/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form })
+	if (!res.ok) return
+	const data = await res.json() as { access_token: string; refresh_token?: string; expires_in: number }
 	localStorage.setItem('access_token', data.access_token)
 	if (data.refresh_token) localStorage.setItem('refresh_token', data.refresh_token)
-	localStorage.setItem('token_timestamp', String(Date.now()))
+	localStorage.setItem('expires_at', String(Date.now() + data.expires_in * 1000))
+	const { usePlayerStore } = await import('@/store/player')
+	usePlayerStore.getState().setTokens(data.access_token, data.refresh_token || null)
+	usePlayerStore.getState().setAuthed(true)
+	try {
+		const { Me } = await import('@/lib/spotifyApi')
+		const profile = await Me.profile() as any
+		const playlists = await Me.topPlaylists(20) as any
+		usePlayerStore.getState().setProfile({ displayName: profile.display_name, avatarUrl: profile.images?.[0]?.url })
+		usePlayerStore.getState().setPlaylists(playlists.items || [])
+	} catch {}
+}
 
-		// notify store
-		const { usePlayerStore } = await import('@/store/player')
-		usePlayerStore.getState().setTokens(data.access_token, data.refresh_token ?? null)
-		usePlayerStore.getState().setAuthed(true)
-
-		// fetch profile and playlists and set them in the store
+async function refreshIfNeeded(): Promise<string | null> {
+	const access_token = localStorage.getItem('access_token')
+	const refresh_token = localStorage.getItem('refresh_token')
+	const expires_at = Number(localStorage.getItem('expires_at') || '0')
+	const now = Date.now()
+	if (access_token && expires_at && (expires_at - now) > 60_000) return access_token
+	if (!refresh_token) return access_token
+	if (inFlightRefresh) return inFlightRefresh
+	inFlightRefresh = (async () => {
+		const form = new URLSearchParams({
+			grant_type: 'refresh_token',
+			refresh_token,
+			client_id: CLIENT_ID,
+		})
 		try {
-			const { Me } = await import('@/lib/spotifyApi')
-			const profile = await Me.profile() as any
-			const playlists = await Me.topPlaylists(20) as any
-			usePlayerStore.getState().setProfile({ displayName: profile.display_name, avatarUrl: profile.images?.[0]?.url })
-			usePlayerStore.getState().setPlaylists(playlists.items || [])
-		} catch (err) {
-			// non-fatal
-			console.warn('Failed to fetch profile/playlists after auth', err)
+			const res = await fetch('https://accounts.spotify.com/api/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form })
+			if (!res.ok) throw new Error('Refresh failed')
+			const data = await res.json() as { access_token: string; expires_in: number }
+			const expiresAt = Date.now() + (data.expires_in * 1000)
+			localStorage.setItem('access_token', data.access_token)
+			localStorage.setItem('expires_at', String(expiresAt))
+			const { usePlayerStore } = await import('@/store/player')
+			usePlayerStore.getState().setTokens(data.access_token, refresh_token)
+			return data.access_token
+		} catch (e) {
+			console.warn('Token refresh error', e)
+			return access_token
+		} finally {
+			inFlightRefresh = null
 		}
+	})()
+	return inFlightRefresh
 }
 
 export async function getAccessToken(): Promise<string | null> {
-	const at = localStorage.getItem('access_token')
-	const ts = Number(localStorage.getItem('token_timestamp') || '0')
-	const age = (Date.now() - ts) / 1000
-	if (at && age < 3400) return at // ~ 56m safety window
-
-	const rt = localStorage.getItem('refresh_token')
-	if (!rt) return at
-
-	const form = new URLSearchParams({
-		grant_type: 'refresh_token',
-		refresh_token: rt,
-		client_id: CLIENT_ID,
-	})
-
-	const res = await fetch('https://accounts.spotify.com/api/token', {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-		body: form,
-	})
-	if (!res.ok) return at
-	const data = (await res.json()) as { access_token: string; expires_in: number }
-	localStorage.setItem('access_token', data.access_token)
-	localStorage.setItem('token_timestamp', String(Date.now()))
-	return data.access_token
+	return await refreshIfNeeded()
 }
 
 export async function logout() {
 	localStorage.removeItem('access_token')
 	localStorage.removeItem('refresh_token')
-	localStorage.removeItem('token_timestamp')
+	localStorage.removeItem('expires_at')
 }

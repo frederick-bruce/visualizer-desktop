@@ -24,6 +24,9 @@ export default defineConfig(() => {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),
     },
+  // Ensure only one instance of react / react-dom (avoids "invalid hook call" when a dependency
+  // accidentally brings its own copy). This forces Vite to dedupe these imports across prebundling.
+  dedupe: ['react', 'react-dom'],
     },
   }
 })
