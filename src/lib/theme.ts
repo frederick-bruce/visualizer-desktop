@@ -38,14 +38,28 @@ export async function deriveAccentFromArt(url?: string | null) {
     return null
   }
   try {
+    const controller = new AbortController()
+    const t = setTimeout(() => controller.abort(), 8000)
     const hex = await getDominantColorFromUrl(url)
-    setAccent(hex)
+    clearTimeout(t)
+    // Throttle rapid updates (<250ms) to avoid flicker
+    const now = performance.now()
+    const last = (deriveAccentFromArt as any)._lastUpdate || 0
+    if (now - last < 250) {
+      requestAnimationFrame(() => setAccent(hex))
+    } else {
+      setAccent(hex)
+    }
+    ;(deriveAccentFromArt as any)._lastUpdate = now
     return hex
   } catch {
-    // fall back to default accent
     setAccent(null)
     return null
   }
+}
+
+export function accentGlowBackground(alpha = 0.35) {
+  return `radial-gradient(circle at 25% 35%, color-mix(in srgb, ${accentCssVar} 90%, transparent) 0%, transparent 60%), radial-gradient(circle at 75% 65%, color-mix(in srgb, ${accentCssVar} 60%, transparent) 0%, transparent 70%)` as string
 }
 
 // Small class-name helpers for consistent styling

@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { deriveAccentFromArt } from '@/lib/theme'
+import { useEffect, useState, useRef } from 'react'
+import { deriveAccentFromArt, accentGlowBackground } from '@/lib/theme'
 import Truncate from '@/components/Truncate'
 import { usePlayerStore } from '@/store/player'
 
@@ -9,6 +9,7 @@ export default function NowPlayingHeader() {
   const [artists, setArtists] = useState<string | null>(null)
   const [album, setAlbum] = useState<string | null>(null)
   const [art, setArt] = useState<string | null>(null)
+  const imgRef = useRef<HTMLImageElement | null>(null)
 
   useEffect(() => {
     if (!isAuthed) return
@@ -36,14 +37,54 @@ export default function NowPlayingHeader() {
   }, [isAuthed])
 
   return (
-  <div className="flex items-center gap-4 min-h-[72px]">
-      <div className="w-14 h-14 rounded-md overflow-hidden bg-white/5 flex items-center justify-center">
-        {art ? <img src={art} alt={title ?? 'album art'} className="w-full h-full object-cover" /> : <div className="text-xs text-white/40">—</div>}
+    <div
+      className="relative flex items-center gap-4 min-h-[80px] px-2 py-2 rounded-xl border border-white/10 bg-black/30 backdrop-blur-md overflow-hidden"
+      style={{
+        backgroundImage: accentGlowBackground(),
+        backgroundBlendMode: 'plus-lighter'
+      }}
+    >
+      {/* Album art placeholder size prevents layout shift */}
+      <div className="relative w-16 h-16 rounded-xl overflow-hidden flex items-center justify-center bg-white/5 ring-1 ring-white/10">
+        {art ? (
+          <img
+            ref={imgRef}
+            src={art}
+            alt={title ?? 'album art'}
+            className="w-full h-full object-cover fade-in"
+            loading="lazy"
+            draggable={false}
+          />
+        ) : (
+          <div className="text-[10px] text-white/40 select-none">No Art</div>
+        )}
       </div>
-      <div className="min-w-0">
-    <div className="typo-h1"><Truncate title={title ?? undefined}>{title ?? 'Nothing playing'}</Truncate></div>
-    <div className="typo-body"><Truncate title={artists ? `${artists} · ${album ?? ''}` : undefined}>{artists ? `${artists} · ${album ?? ''}` : '—'}</Truncate></div>
+      <div className="min-w-0 flex-1">
+        <div className="group relative">
+          <div className="typo-h1 whitespace-nowrap overflow-hidden">
+            <span className="inline-block will-change-transform group-hover:animate-marquee" title={title ?? undefined}>{title ?? 'Nothing playing'}</span>
+          </div>
+        </div>
+        <div className="group relative mt-0.5">
+          <div className="typo-body text-white/70 whitespace-nowrap overflow-hidden">
+            <span className="inline-block will-change-transform group-hover:animate-marquee" title={artists ? `${artists} · ${album ?? ''}` : undefined}>
+              {artists ? `${artists} · ${album ?? ''}` : '—'}
+            </span>
+          </div>
+        </div>
       </div>
+      <style>{`
+        @keyframes marquee {
+          0% { transform: translateX(0); }
+          100% { transform: translateX(-40%); }
+        }
+        .animate-marquee { animation: marquee 8s linear infinite; }
+        @media (prefers-reduced-motion: reduce) {
+          .animate-marquee { animation: none !important; }
+        }
+        .fade-in { opacity: 0; animation: fade 320ms ease forwards; }
+        @keyframes fade { to { opacity: 1; } }
+      `}</style>
     </div>
   )
 }
