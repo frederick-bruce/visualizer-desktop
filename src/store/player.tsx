@@ -27,6 +27,8 @@ visualizer: 'bars' | 'wave' | 'particles'
 	profile: { displayName?: string; avatarUrl?: string } | null
 	playlists: any[]
 	devices?: any[]
+	lowPowerMode: boolean
+	isLowEnd: boolean
  authError: string | null
 	sidebarCollapsed: boolean
 	setSidebarCollapsed: (b: boolean) => void
@@ -41,6 +43,7 @@ setAuthed: (b: boolean) => void
 	setProfile: (p: PlayerState['profile']) => void
 	setPlaylists: (pl: any[]) => void
 	setDevices?: (d: any[]) => void
+	setLowPowerMode: (b: boolean) => void
 		setAuthError: (s: string | null) => void
 login: () => void
 logout: () => void
@@ -81,6 +84,25 @@ presets: (() => {
 profile: null,
 playlists: [],
 devices: [],
+isLowEnd: (() => {
+	if (typeof navigator === 'undefined') return false
+	const cores = (navigator.hardwareConcurrency || 4)
+	// @ts-ignore
+	const mem = (navigator as any).deviceMemory || 8
+	return cores <= 2 || mem < 6
+})(),
+lowPowerMode: (() => {
+	if (typeof localStorage === 'undefined') return false
+	try { const v = localStorage.getItem('lowPowerMode'); if (v != null) return JSON.parse(v) } catch {}
+	// auto-enable if low-end detected
+	try {
+		const cores = (typeof navigator !== 'undefined' ? navigator.hardwareConcurrency : 4) || 4
+		// @ts-ignore
+		const mem = (typeof navigator !== 'undefined' ? (navigator as any).deviceMemory : 8) || 8
+		return cores <= 2 || mem < 6
+	} catch {}
+	return false
+})(),
 sidebarCollapsed: (() => {
 	if (typeof localStorage === 'undefined') return true
 	try { const v = localStorage.getItem('sidebarCollapsed'); return v ? JSON.parse(v) : true } catch { return true }
@@ -116,6 +138,7 @@ setAuthed: (b) => set({ isAuthed: b }),
 setProfile: (p) => set({ profile: p }),
 setPlaylists: (pl) => set({ playlists: pl }),
 setDevices: (d) => set({ devices: d }),
+setLowPowerMode: (b) => { set({ lowPowerMode: b }); try { localStorage.setItem('lowPowerMode', JSON.stringify(b)) } catch {} },
 setAuthError: (s) => set({ authError: s }),
 setSidebarCollapsed: (b) => { set({ sidebarCollapsed: b }); try { localStorage.setItem('sidebarCollapsed', JSON.stringify(b)) } catch {} },
 login: async () => { try { await authorize(); set({ authError: null }) } catch (err: any) { set({ authError: String(err?.message || err) }); } },

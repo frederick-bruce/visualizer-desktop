@@ -4,10 +4,31 @@ import { Analysis } from '@/lib/spotifyApi'
 import { buildTimeline, intensityAt, bpmAt, computeBandAverages } from '@/lib/beatmap'
 import * as V from '@/visualizers'
 
+// Simple shared RAF clock so multiple components can subscribe without duplicating RAF cost.
+const subscribers: Set<(t: number, dt: number) => void> = new Set()
+let rafRunning = false
+let lastTs = performance.now()
+function ensureRafLoop() {
+	if (rafRunning) return
+	rafRunning = true
+	function loop(ts: number) {
+		const dt = (ts - lastTs) / 1000
+		lastTs = ts
+		subscribers.forEach(fn => fn(ts, dt))
+		if (subscribers.size === 0) { rafRunning = false; return }
+		requestAnimationFrame(loop)
+	}
+	requestAnimationFrame(loop)
+}
+
+function subscribe(fn: (t: number, dt: number) => void) {
+	subscribers.add(fn); ensureRafLoop(); return () => { subscribers.delete(fn) }
+}
+
 
 export default function VisualizerCanvas() {
 const canvasRef = useRef<HTMLCanvasElement | null>(null)
-const { visualizer, renderMode, setRenderMode } = usePlayerStore()
+const { visualizer, renderMode, setRenderMode, lowPowerMode, isLowEnd } = usePlayerStore()
 const [viz, setViz] = useState<V.Visualizer>(() => V.bars)
 const timelineRef = useRef<ReturnType<typeof buildTimeline> | null>(null)
 const timeRef = useRef(0)
@@ -21,21 +42,21 @@ setViz(visualizer === 'bars' ? V.bars : visualizer === 'wave' ? V.wave : V.parti
 
 // Track polling for current item + analysis
 useEffect(() => {
-let canceled = false
-async function load() {
-try {
-const me = await fetch('https://api.spotify.com/v1/me/player/currently-playing', { headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } })
-if (!me.ok) return
-const data = await me.json()
-const id = data?.item?.id as string | undefined
-if (!id) return
-const analysis = await Analysis.audioAnalysis(id)
-if (!canceled) timelineRef.current = buildTimeline(analysis)
-} catch {}
-}
-load()
-const t = setInterval(load, 5000)
-return () => { canceled = true; clearInterval(t) }
+	let canceled = false
+	async function load() {
+		try {
+			const me = await fetch('https://api.spotify.com/v1/me/player/currently-playing', { headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } })
+			if (!me.ok) return
+			const data = await me.json()
+			const id = data?.item?.id as string | undefined
+			if (!id) return
+			const analysis = await Analysis.audioAnalysis(id)
+			if (!canceled) timelineRef.current = buildTimeline(analysis)
+		} catch {}
+	}
+	load()
+	const t = setInterval(load, 8000)
+	return () => { canceled = true; clearInterval(t) }
 }, [])
 
 
@@ -66,55 +87,69 @@ useEffect(() => {
 }, [resize])
 
 // Frame driver: RAF or setInterval
+// Rendering logic with shared RAF clock + optional interval for "max" mode
 useEffect(() => {
-	let stopped = false
-	let last = performance.now()
 	const c = canvasRef.current
 	const ctx = c?.getContext('2d') || null
 	if (!c || !ctx) return
 
-	function frame(now: number) {
+	let stopped = false
+	let lastStepped = performance.now()
+	let intervalId: any = null
+
+	function renderTick(ts: number, dt: number) {
 		if (stopped) return
-		const dt = (now - last) / 1000
-		last = now
-		step(dt)
-		rafId = requestAnimationFrame(frame)
+		if (renderMode === 'raf') {
+			step(dt)
+		}
 	}
 
-	function intervalTick() {
-		const now = performance.now()
-		const dt = (now - last) / 1000
-		last = now
-		step(dt)
-	}
+	function step(dt: number) {
+		if (!c || !ctx) return
+		resize()
+		// In low power mode, clamp dt to avoid large jumps and optionally drop frames
+		const maxDt = 0.05
+		if (dt > maxDt) dt = maxDt
+		timeRef.current += dt
+		const tl = timelineRef.current
+		const intensityBase = tl ? intensityAt(tl, timeRef.current) : 0.6
+		const sensitivity = usePlayerStore.getState().vizSettings?.sensitivity ?? 1
+		let intensity = intensityBase * sensitivity
+		const bpm = tl ? bpmAt(tl, timeRef.current) : undefined
+		const bandAverages = computeBandAverages(timeRef.current, 8)
 
-		function step(dt: number) {
-			if (!c || !ctx) return
-			resize()
-			timeRef.current += dt
-			const tl = timelineRef.current
-			const intensityBase = tl ? intensityAt(tl, timeRef.current) : 0.6
-			// pull sensitivity live each frame
-			const sensitivity = usePlayerStore.getState().vizSettings?.sensitivity ?? 1
-			const intensity = intensityBase * sensitivity
-			const bpm = tl ? bpmAt(tl, timeRef.current) : undefined
-			const bandAverages = computeBandAverages(timeRef.current, 8)
-			viz({ ctx, width: c.clientWidth, height: c.clientHeight, time: timeRef.current, intensity, bpm, bandAverages })
+		// Low power adjustments: reduce intensity variance slightly & skip every other frame for particles
+		if (lowPowerMode || isLowEnd) {
+			if (viz === V.particles && (Math.floor(timeRef.current * 60) % 2 === 0)) {
+				// skip rendering some frames for heavy viz
+			}
+			intensity *= 0.9
 		}
 
-	let rafId: number | null = null
-	let intervalId: any = null
-	if (renderMode === 'raf') {
-		rafId = requestAnimationFrame(frame)
-	} else {
-		intervalId = setInterval(intervalTick, 1000 / 90) // Max FPS ~90
+		// Trail / blur future: if low power, ignore blur/trail heavy operations (not yet implemented in visuals)
+		viz({ ctx, width: c.clientWidth, height: c.clientHeight, time: timeRef.current, intensity, bpm, bandAverages })
 	}
+
+	let unsub: (() => void) | null = null
+	if (renderMode === 'raf') {
+		unsub = subscribe(renderTick)
+	} else {
+		// max mode: higher interval (adaptive). Lower if low power.
+		const fps = (lowPowerMode || isLowEnd) ? 60 : 90
+		intervalId = setInterval(() => {
+			const now = performance.now()
+			const dt = (now - lastStepped) / 1000
+			lastStepped = now
+			step(dt)
+		}, 1000 / fps)
+	}
+
 	return () => {
 		stopped = true
-		if (rafId) cancelAnimationFrame(rafId)
+		if (unsub) unsub()
 		if (intervalId) clearInterval(intervalId)
 	}
-}, [renderMode, viz, resize])
+}, [renderMode, viz, resize, lowPowerMode, isLowEnd])
 
 // Simple toggle UI (temporary until a settings control exists)
 useEffect(() => {

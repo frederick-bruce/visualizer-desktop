@@ -86,7 +86,7 @@ export default function Home() {
 		}
 
 	function SettingsPanel() {
-			const { logout } = usePlayerStore()
+			const { logout, lowPowerMode, setLowPowerMode, isLowEnd } = usePlayerStore()
 			return (
 				<div className="p-6 space-y-6 h-full w-full overflow-auto">
 					<section>
@@ -100,6 +100,14 @@ export default function Home() {
 					<section>
 						<h2 className="text-lg font-semibold mb-2">Device</h2>
 						<p className="text-sm text-white/60">Device selection coming soon.</p>
+					</section>
+					<section>
+						<h2 className="text-lg font-semibold mb-2">Performance</h2>
+						<label className="flex items-center gap-3 text-sm select-none cursor-pointer">
+							<input type="checkbox" checked={lowPowerMode} onChange={e => setLowPowerMode(e.target.checked)} />
+							<span>Low Power Mode</span>
+						</label>
+						<p className="text-xs text-white/50 mt-1 max-w-md">Reduces visual effects (blur/glow) and may lower frame pacing to save CPU/GPU. {isLowEnd && <span className="text-amber-300 ml-1">Auto‑recommended for this device.</span>}</p>
 					</section>
 				</div>
 			)
