@@ -29,6 +29,7 @@ visualizer: 'bars' | 'wave' | 'particles'
 	devices?: any[]
 	lowPowerMode: boolean
 	isLowEnd: boolean
+	reduceMotion?: boolean
  authError: string | null
 	sidebarCollapsed: boolean
 	setSidebarCollapsed: (b: boolean) => void
@@ -44,6 +45,7 @@ setAuthed: (b: boolean) => void
 	setPlaylists: (pl: any[]) => void
 	setDevices?: (d: any[]) => void
 	setLowPowerMode: (b: boolean) => void
+	setReduceMotion: (b: boolean) => void
 		setAuthError: (s: string | null) => void
 login: () => void
 logout: () => void
@@ -103,6 +105,12 @@ lowPowerMode: (() => {
 	} catch {}
 	return false
 })(),
+reduceMotion: (() => {
+	if (typeof localStorage === 'undefined') return false
+	try { const v = localStorage.getItem('reduceMotion'); if (v!=null) return JSON.parse(v) } catch {}
+	if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true
+	return false
+})(),
 sidebarCollapsed: (() => {
 	if (typeof localStorage === 'undefined') return true
 	try { const v = localStorage.getItem('sidebarCollapsed'); return v ? JSON.parse(v) : true } catch { return true }
@@ -139,6 +147,7 @@ setProfile: (p) => set({ profile: p }),
 setPlaylists: (pl) => set({ playlists: pl }),
 setDevices: (d) => set({ devices: d }),
 setLowPowerMode: (b) => { set({ lowPowerMode: b }); try { localStorage.setItem('lowPowerMode', JSON.stringify(b)) } catch {} },
+setReduceMotion: (b) => { set({ reduceMotion: b }); try { localStorage.setItem('reduceMotion', JSON.stringify(b)) } catch {} },
 setAuthError: (s) => set({ authError: s }),
 setSidebarCollapsed: (b) => { set({ sidebarCollapsed: b }); try { localStorage.setItem('sidebarCollapsed', JSON.stringify(b)) } catch {} },
 login: async () => { try { await authorize(); set({ authError: null }) } catch (err: any) { set({ authError: String(err?.message || err) }); } },

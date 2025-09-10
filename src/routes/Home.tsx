@@ -86,7 +86,7 @@ export default function Home() {
 		}
 
 	function SettingsPanel() {
-			const { logout, lowPowerMode, setLowPowerMode, isLowEnd } = usePlayerStore()
+			const { logout, lowPowerMode, setLowPowerMode, isLowEnd, reduceMotion, setReduceMotion } = usePlayerStore()
 			return (
 				<div className="p-6 space-y-6 h-full w-full overflow-auto">
 					<section>
@@ -108,6 +108,11 @@ export default function Home() {
 							<span>Low Power Mode</span>
 						</label>
 						<p className="text-xs text-white/50 mt-1 max-w-md">Reduces visual effects (blur/glow) and may lower frame pacing to save CPU/GPU. {isLowEnd && <span className="text-amber-300 ml-1">Auto‑recommended for this device.</span>}</p>
+						<label className="flex items-center gap-3 text-sm select-none cursor-pointer mt-4">
+							<input type="checkbox" checked={!!reduceMotion} onChange={e => setReduceMotion(e.target.checked)} />
+							<span>Reduce Motion</span>
+						</label>
+						<p className="text-xs text-white/50 mt-1 max-w-md">Disables heavy animations & transitions. Respects system preference.</p>
 					</section>
 				</div>
 			)
