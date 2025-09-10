@@ -30,6 +30,7 @@ visualizer: 'bars' | 'wave' | 'particles'
 	lowPowerMode: boolean
 	isLowEnd: boolean
 	reduceMotion?: boolean
+	styleMode?: 'default' | 'nostalgia'
  authError: string | null
 	sidebarCollapsed: boolean
 	setSidebarCollapsed: (b: boolean) => void
@@ -46,6 +47,7 @@ setAuthed: (b: boolean) => void
 	setDevices?: (d: any[]) => void
 	setLowPowerMode: (b: boolean) => void
 	setReduceMotion: (b: boolean) => void
+	setStyleMode: (m: 'default' | 'nostalgia') => void
 		setAuthError: (s: string | null) => void
 login: () => void
 logout: () => void
@@ -111,6 +113,11 @@ reduceMotion: (() => {
 	if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return true
 	return false
 })(),
+styleMode: (() => {
+	if (typeof localStorage === 'undefined') return 'default'
+	try { const v = localStorage.getItem('styleMode'); if (v === 'nostalgia') return 'nostalgia' } catch {}
+	return 'default'
+})(),
 sidebarCollapsed: (() => {
 	if (typeof localStorage === 'undefined') return true
 	try { const v = localStorage.getItem('sidebarCollapsed'); return v ? JSON.parse(v) : true } catch { return true }
@@ -148,6 +155,7 @@ setPlaylists: (pl) => set({ playlists: pl }),
 setDevices: (d) => set({ devices: d }),
 setLowPowerMode: (b) => { set({ lowPowerMode: b }); try { localStorage.setItem('lowPowerMode', JSON.stringify(b)) } catch {} },
 setReduceMotion: (b) => { set({ reduceMotion: b }); try { localStorage.setItem('reduceMotion', JSON.stringify(b)) } catch {} },
+setStyleMode: (m) => { set({ styleMode: m }); try { localStorage.setItem('styleMode', m) } catch {} },
 setAuthError: (s) => set({ authError: s }),
 setSidebarCollapsed: (b) => { set({ sidebarCollapsed: b }); try { localStorage.setItem('sidebarCollapsed', JSON.stringify(b)) } catch {} },
 login: async () => { try { await authorize(); set({ authError: null }) } catch (err: any) { set({ authError: String(err?.message || err) }); } },

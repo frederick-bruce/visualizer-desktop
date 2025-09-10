@@ -70,3 +70,21 @@ export default tseslint.config([
   },
 ])
 ```
+
+## Testing
+
+Playwright smoke tests validate core UI flows (sidebar toggle, tab switching, visualizer selection, timeline scrub, volume change).
+
+Install browsers then run tests:
+
+```
+npm run test:install
+npm test
+```
+
+Open interactive UI mode:
+
+```
+npm run test:ui
+```
+

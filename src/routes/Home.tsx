@@ -94,7 +94,7 @@ export default function Home() {
 		}
 
 	function SettingsPanel() {
-			const { logout, lowPowerMode, setLowPowerMode, isLowEnd, reduceMotion, setReduceMotion } = usePlayerStore()
+			const { logout, lowPowerMode, setLowPowerMode, isLowEnd, reduceMotion, setReduceMotion, styleMode, setStyleMode } = usePlayerStore() as any
 			return (
 				<div className="p-6 space-y-6 h-full w-full overflow-auto">
 					<section>
@@ -121,6 +121,14 @@ export default function Home() {
 							<span>Reduce Motion</span>
 						</label>
 						<p className="text-xs text-white/50 mt-1 max-w-md">Disables heavy animations & transitions. Respects system preference.</p>
+					</section>
+					<section>
+						<h2 className="text-lg font-semibold mb-2">Style</h2>
+						<div className="flex items-center gap-3 text-sm">
+							<button onClick={() => setStyleMode('default')} className={[ 'px-3 py-1.5 rounded-md border text-xs', styleMode==='default' ? 'bg-white/15 border-white/30' : 'bg-white/5 border-white/10 hover:bg-white/10'].join(' ')}>Default</button>
+							<button onClick={() => setStyleMode('nostalgia')} className={[ 'px-3 py-1.5 rounded-md border text-xs', styleMode==='nostalgia' ? 'bg-[var(--accent,#1DB954)]/30 border-[var(--accent,#1DB954)]/40' : 'bg-white/5 border-white/10 hover:bg-white/10'].join(' ')}>Nostalgia</button>
+						</div>
+						<p className="text-xs text-white/50 mt-1 max-w-md">Nostalgia adds subtle bloom and a classic equalizer reflection with minimal performance impact.</p>
 					</section>
 				</div>
 			)

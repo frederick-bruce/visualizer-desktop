@@ -28,7 +28,7 @@ function subscribe(fn: (t: number, dt: number) => void) {
 
 export default function VisualizerCanvas() {
 const canvasRef = useRef<HTMLCanvasElement | null>(null)
-const { visualizer, renderMode, setRenderMode, lowPowerMode, isLowEnd } = usePlayerStore()
+const { visualizer, renderMode, setRenderMode, lowPowerMode, isLowEnd, styleMode } = usePlayerStore() as any
 const [viz, setViz] = useState<V.Visualizer>(() => V.bars)
 const timelineRef = useRef<ReturnType<typeof buildTimeline> | null>(null)
 const timeRef = useRef(0)
@@ -104,7 +104,7 @@ useEffect(() => {
 		}
 	}
 
-	function step(dt: number) {
+		function step(dt: number) {
 		if (!c || !ctx) return
 		resize()
 		// In low power mode, clamp dt to avoid large jumps and optionally drop frames
@@ -127,7 +127,46 @@ useEffect(() => {
 		}
 
 		// Trail / blur future: if low power, ignore blur/trail heavy operations (not yet implemented in visuals)
-		viz({ ctx, width: c.clientWidth, height: c.clientHeight, time: timeRef.current, intensity, bpm, bandAverages })
+			if (styleMode === 'nostalgia' && !(lowPowerMode || isLowEnd)) {
+				// Draw to offscreen for bloom effect
+				const ow = c.clientWidth
+				const oh = c.clientHeight
+				const off = (step as any)._off || ((step as any)._off = document.createElement('canvas'))
+				off.width = ow
+				off.height = oh
+				const octx = off.getContext('2d')!
+				octx.clearRect(0,0,ow,oh)
+				viz({ ctx: octx, width: ow, height: oh, time: timeRef.current, intensity, bpm, bandAverages })
+				// Copy base
+				ctx.clearRect(0,0,ow,oh)
+				ctx.drawImage(off,0,0)
+				// Bloom pass: simple multi blur composite (cheap)
+				ctx.save()
+				ctx.globalCompositeOperation = 'lighter'
+				const passes = 3
+				for (let i=1;i<=passes;i++) {
+					const scale = 1 + i*0.02
+					ctx.globalAlpha = 0.10
+					ctx.filter = `blur(${2*i}px)`
+					ctx.drawImage(off, (ow - ow*scale)/2, (oh - oh*scale)/2, ow*scale, oh*scale)
+				}
+				ctx.restore()
+				ctx.filter = 'none'
+				// Reflection: draw flipped faded
+				const rh = Math.min(oh * 0.25, 180)
+				ctx.save()
+				ctx.scale(1, -1)
+				ctx.drawImage(off, 0, -oh - rh, ow, rh)
+				ctx.restore()
+				// Fade mask for reflection
+				const grad = ctx.createLinearGradient(0, oh, 0, oh - rh)
+				grad.addColorStop(0, 'rgba(0,0,0,0.6)')
+				grad.addColorStop(1, 'rgba(0,0,0,1)')
+				ctx.fillStyle = grad
+				ctx.fillRect(0, oh - rh, ow, rh)
+			} else {
+				viz({ ctx, width: c.clientWidth, height: c.clientHeight, time: timeRef.current, intensity, bpm, bandAverages })
+			}
 	}
 
 	let unsub: (() => void) | null = null
@@ -149,7 +188,7 @@ useEffect(() => {
 		if (unsub) unsub()
 		if (intervalId) clearInterval(intervalId)
 	}
-}, [renderMode, viz, resize, lowPowerMode, isLowEnd])
+}, [renderMode, viz, resize, lowPowerMode, isLowEnd, styleMode])
 
 // Simple toggle UI (temporary until a settings control exists)
 useEffect(() => {
