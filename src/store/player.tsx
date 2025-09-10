@@ -16,6 +16,8 @@ visualizer: 'bars' | 'wave' | 'particles'
 	profile: { displayName?: string; avatarUrl?: string } | null
 	playlists: any[]
  authError: string | null
+	sidebarCollapsed: boolean
+	setSidebarCollapsed: (b: boolean) => void
 setVisualizer: (v: PlayerState['visualizer']) => void
 setTokens: (a: string, r: string | null) => void
 setAuthed: (b: boolean) => void
@@ -40,6 +42,10 @@ volume: 0.6,
 visualizer: 'bars',
 profile: null,
 playlists: [],
+sidebarCollapsed: (() => {
+	if (typeof localStorage === 'undefined') return true
+	try { const v = localStorage.getItem('sidebarCollapsed'); return v ? JSON.parse(v) : true } catch { return true }
+})(),
  authError: null,
 setVisualizer: (v) => set({ visualizer: v }),
 setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
@@ -47,6 +53,7 @@ setAuthed: (b) => set({ isAuthed: b }),
 setProfile: (p) => set({ profile: p }),
 setPlaylists: (pl) => set({ playlists: pl }),
 setAuthError: (s) => set({ authError: s }),
+setSidebarCollapsed: (b) => { set({ sidebarCollapsed: b }); try { localStorage.setItem('sidebarCollapsed', JSON.stringify(b)) } catch {} },
 login: async () => { try { await authorize(); set({ authError: null }) } catch (err: any) { set({ authError: String(err?.message || err) }); } },
 logout: async () => { await doLogout(); disconnectPlayer(); set({ isAuthed: false, accessToken: null, refreshToken: null, deviceId: null, isPlaying: false, profile: null, playlists: [] }); },
 setDeviceId: (id) => set({ deviceId: id }),
