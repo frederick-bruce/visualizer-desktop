@@ -93,7 +93,10 @@ useEffect(() => {
 			resize()
 			timeRef.current += dt
 			const tl = timelineRef.current
-			const intensity = tl ? intensityAt(tl, timeRef.current) : 0.6
+			const intensityBase = tl ? intensityAt(tl, timeRef.current) : 0.6
+			// pull sensitivity live each frame
+			const sensitivity = usePlayerStore.getState().vizSettings?.sensitivity ?? 1
+			const intensity = intensityBase * sensitivity
 			const bpm = tl ? bpmAt(tl, timeRef.current) : undefined
 			const bandAverages = computeBandAverages(timeRef.current, 8)
 			viz({ ctx, width: c.clientWidth, height: c.clientHeight, time: timeRef.current, intensity, bpm, bandAverages })
