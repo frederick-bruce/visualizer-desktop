@@ -20,11 +20,16 @@ export const accentCssVar = 'var(--accent-dynamic, var(--accent))'
 export function setAccent(hex?: string | null) {
   if (typeof document === 'undefined') return
   const root = document.documentElement
+  const body = document.body
   if (!hex) {
     root.style.removeProperty('--accent-dynamic')
+    body.style.removeProperty('--accent')
     return
   }
+  // dynamic accent variable (legacy usage)
   root.style.setProperty('--accent-dynamic', hex)
+  // task #1: ensure --accent exists on <body>
+  body.style.setProperty('--accent', hex)
 }
 
 export async function deriveAccentFromArt(url?: string | null) {
