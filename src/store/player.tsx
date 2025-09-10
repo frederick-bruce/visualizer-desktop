@@ -11,6 +11,9 @@ refreshToken: string | null
 deviceId: string | null
 isPlaying: boolean
 volume: number
+	prevVolume?: number
+	mute: () => void
+	unmute: () => void
 visualizer: 'bars' | 'wave' | 'particles'
 	renderMode: 'raf' | 'max'
 	// user profile and library
@@ -41,6 +44,9 @@ refreshToken: null,
 deviceId: null,
 isPlaying: false,
 volume: 0.6,
+	prevVolume: 0.6,
+	mute: () => set(s => ({ prevVolume: s.volume || 0.6, volume: 0 })),
+	unmute: () => set(s => ({ volume: s.prevVolume ?? 0.6 })),
 visualizer: 'bars',
 renderMode: 'raf',
 profile: null,
