@@ -145,9 +145,10 @@ export default function PlayerBar() {
 				</div>
 			)}
 			{!isAuthed ? (
-				<div className="text-white/60 flex items-center gap-3">
-					<span>Sign in to control playback.</span>
-					<button onClick={() => login()} className="px-3 py-1 rounded bg-emerald-500/30 hover:bg-emerald-500/50 text-emerald-50 text-sm font-medium transition-colors">Connect</button>
+				<div className="text-white/70 text-sm flex items-center gap-4">
+					<span className="opacity-80">Connect to Spotify to start playback.</span>
+					<button onClick={() => login()} className="px-3 py-1.5 rounded-md bg-emerald-500/30 hover:bg-emerald-500/50 text-emerald-50 text-sm font-medium transition-colors">Connect</button>
+					<a href="https://support.spotify.com/" target="_blank" className="text-emerald-300/80 hover:text-emerald-200 text-xs underline">Help</a>
 				</div>
 			) : (
 				<div className="flex flex-col gap-4">
@@ -168,7 +169,11 @@ export default function PlayerBar() {
 										<button className="text-white/40 hover:text-white/70 text-[10px]" onClick={() => setShowDevices(false)}>Close</button>
 									</div>
 									{loadingDevices && <div className="animate-pulse text-white/50 py-2">Loading…</div>}
-									{!loadingDevices && !devices.length && <div className="text-white/40 py-2">No devices found. Open Spotify on another device.</div>}
+									{!loadingDevices && !devices.length && <div className="text-white/50 py-2 text-xs leading-relaxed">
+										<span className="block font-medium text-white/70 mb-1">No active device</span>
+										Open Spotify on another device (phone / desktop) and press play, then click Refresh.
+										<button onClick={loadDevices} className="mt-2 inline-block px-2 py-1 rounded bg-white/10 hover:bg-white/15">Refresh</button>
+									</div>}
 									{devices.map(d => (
 										<button key={d.id} onClick={async () => { await API.transfer(d.id); loadDevices(); }} className={`flex items-center justify-between px-2 py-1 rounded hover:bg-white/5 text-left ${d.is_active ? 'bg-emerald-500/20 text-emerald-200' : 'text-white/70'}`}>
 											<span className="truncate max-w-[140px]">{d.name || 'Unnamed'}</span>

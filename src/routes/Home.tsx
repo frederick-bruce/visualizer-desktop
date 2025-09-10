@@ -44,6 +44,7 @@ export default function Home() {
 	}, [])
 
 	function LibraryPanel() {
+		const { devices } = usePlayerStore() as any
 		if (!isAuthed) return <AuthCallout />
 		return (
 			<div className="w-full h-full flex items-stretch justify-center">
@@ -60,10 +61,17 @@ export default function Home() {
 							<div className="typo-body marquee"><span className="marquee-inner" title={artists ?? undefined}>{artists ?? '—'}</span></div>
 						</div>
 					</div>
-					<div className="min-h-0 flex">
+					<div className="min-h-0 flex relative">
 						<div className="aspect-4-5 md:aspect-16-9 w-full h-full rounded-2xl overflow-hidden">
 							<VisualizerCanvas />
 						</div>
+						{devices && !devices.length && (
+							<div className="absolute inset-0 flex flex-col items-center justify-center bg-black/60 backdrop-blur-sm text-center px-6">
+								<div className="text-sm font-medium mb-2 text-white/80">No active device</div>
+								<p className="text-xs text-white/60 max-w-xs mb-3">Open Spotify on one of your devices and press play to start visualizing.</p>
+								<a href="https://open.spotify.com/" target="_blank" className="px-3 py-1.5 rounded bg-[var(--accent,#1DB954)]/25 text-[var(--accent,#1DB954)] text-xs font-medium hover:bg-[var(--accent,#1DB954)]/35">Open Spotify</a>
+							</div>
+						)}
 					</div>
 				</div>
 			</div>

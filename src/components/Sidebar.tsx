@@ -125,21 +125,34 @@ export default function Sidebar() {
 
 			{/* Virtualized list */}
 			<div ref={viewportRef} className="flex-1 overflow-auto focus:outline-none" tabIndex={-1}>
-				<div style={{ height: virtual.total + 'px', position: 'relative' }}>
-					<div style={{ transform: `translateY(${virtual.offset}px)` }} className="absolute inset-x-0 top-0">
-						{virtual.slice.map((p: any, i) => {
-							const absoluteIndex = i + (virtual.offset / rowHeight)
-							const active = absoluteIndex === activeIndex
-							return (
-								<button
-									key={p.id}
-									onClick={() => {
-										setActiveIndex(absoluteIndex)
-										fetch(`https://api.spotify.com/v1/me/player/play`, {
-											method: 'PUT',
-											headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}`, 'Content-Type': 'application/json' },
-											body: JSON.stringify({ context_uri: p.uri })
-										}).catch(()=>{})
+				{!playlists.length && !query && (
+					<div className="px-3 py-6 text-center text-xs text-white/50 space-y-3">
+						<div className="text-white/70 font-medium">No playlists yet</div>
+						<p className="leading-relaxed">Follow some playlists in Spotify and come back, or create your own. They’ll appear here automatically.</p>
+						<a href="https://open.spotify.com/" target="_blank" className="inline-block px-3 py-1.5 rounded bg-[var(--accent-dynamic)]/20 text-[var(--accent-dynamic)] text-xs font-medium hover:bg-[var(--accent-dynamic)]/30">Open Spotify</a>
+					</div>
+				)}
+				{!!playlists.length && !virtual.slice.length && query && (
+					<div className="px-3 py-6 text-center text-xs text-white/50">
+						No matches for “{query}”.
+					</div>
+				)}
+				{!!virtual.slice.length && (
+					<div style={{ height: virtual.total + 'px', position: 'relative' }}>
+						<div style={{ transform: `translateY(${virtual.offset}px)` }} className="absolute inset-x-0 top-0">
+							{virtual.slice.map((p: any, i) => {
+								const absoluteIndex = i + (virtual.offset / rowHeight)
+								const active = absoluteIndex === activeIndex
+								return (
+									<button
+										key={p.id}
+										onClick={() => {
+											setActiveIndex(absoluteIndex)
+											fetch(`https://api.spotify.com/v1/me/player/play`, {
+												method: 'PUT',
+												headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}`, 'Content-Type': 'application/json' },
+												body: JSON.stringify({ context_uri: p.uri })
+											}).catch(()=>{})
 									}}
 									className={[
 										'group w-full flex items-center gap-2 px-2 rounded-md transition-colors',
@@ -160,9 +173,10 @@ export default function Sidebar() {
 									)}
 								</button>
 							)
-						})}
+							})}
+						</div>
 					</div>
-				</div>
+				)}
 			</div>
 
 			{/* Visualizer selector */}
