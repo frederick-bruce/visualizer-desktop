@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Player as API } from '@/lib/spotifyApi'
+import { Player as API, Me } from '@/lib/spotifyApi'
 import { usePlayerStore } from '@/store/player'
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ListMusic } from 'lucide-react'
 import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
@@ -9,16 +9,20 @@ import { deriveAccentFromArt } from '@/lib/theme'
 
 export default function PlayerBar() {
 	useSpotifyPlayer()
-	const { isAuthed, isPlaying, volume, setVolume, mute, unmute } = usePlayerStore()
+	const { isAuthed, isPlaying, volume, setVolume, mute, unmute, login, authError, setAuthError, deviceId } = usePlayerStore()
 	const storeGet = usePlayerStore.getState
 	const [pos, setPos] = useState(0)
 	const [dur, setDur] = useState(0)
 	const [buffered, setBuffered] = useState(0)
 	const [showQueue, setShowQueue] = useState(false)
+	const [showDevices, setShowDevices] = useState(false)
+	const [devices, setDevices] = useState<any[]>([])
+	const [loadingDevices, setLoadingDevices] = useState(false)
 	const dragging = useRef(false)
 	const dragPos = useRef(0)
 	const barRef = useRef<HTMLDivElement | null>(null)
 	const queueRef = useRef<HTMLDivElement | null>(null)
+	const devicesRef = useRef<HTMLDivElement | null>(null)
 
 	// Poll playback state
 	useEffect(() => {
@@ -80,6 +84,32 @@ export default function PlayerBar() {
 		return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp) }
 	}, [dur])
 
+	// Device loader
+	const loadDevices = useCallback(async () => {
+		if (!isAuthed) return
+		setLoadingDevices(true)
+		try {
+			const list = await Me.devices() as any
+			setDevices(list?.devices || [])
+			if (!list?.devices?.length) {
+				// no devices
+			} else {
+				setAuthError(null)
+			}
+		} catch (err: any) {
+			setAuthError('Device fetch failed')
+		} finally {
+			setLoadingDevices(false)
+		}
+	}, [isAuthed, setAuthError])
+
+	useEffect(() => {
+		if (!isAuthed) return
+		loadDevices()
+		const id = setInterval(loadDevices, 15000)
+		return () => clearInterval(id)
+	}, [isAuthed, loadDevices])
+
 	// Keyboard shortcuts
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
@@ -107,8 +137,18 @@ export default function PlayerBar() {
 
 	return (
 		<div className="w-full bg-card p-3 md:p-4 rounded-xl shadow-lg wmp-shell relative">
+			{!isAuthed && (
+				<div className="absolute -top-7 left-0 right-0 h-7 flex items-center gap-3 px-3 text-[11px] bg-gradient-to-r from-emerald-500/20 via-emerald-400/15 to-emerald-500/20 border border-emerald-400/30 rounded-t-lg backdrop-blur-sm">
+					<span className="font-medium text-emerald-200 tracking-wide">Not connected</span>
+					<button onClick={() => login()} className="px-2 py-0.5 rounded bg-emerald-500/30 hover:bg-emerald-500/50 text-emerald-50 text-[11px] font-medium transition-colors">Connect Spotify</button>
+					{authError && <span className="text-red-300">{authError}</span>}
+				</div>
+			)}
 			{!isAuthed ? (
-				<div className="text-white/60">Sign in to control playback</div>
+				<div className="text-white/60 flex items-center gap-3">
+					<span>Sign in to control playback.</span>
+					<button onClick={() => login()} className="px-3 py-1 rounded bg-emerald-500/30 hover:bg-emerald-500/50 text-emerald-50 text-sm font-medium transition-colors">Connect</button>
+				</div>
 			) : (
 				<div className="flex flex-col gap-4">
 					<div className="flex items-center justify-center gap-5">
@@ -119,6 +159,25 @@ export default function PlayerBar() {
 							<div className="h-full bg-[var(--accent-dynamic)] rounded" style={{ width: `${Math.round(volume * 100)}%` }} />
 						</div>
 						<Button variant="ghost" aria-label="Queue" onClick={() => setShowQueue(s => !s)} className="h-10 w-10 rounded-full flex items-center justify-center hover:bg-white/15"><ListMusic size={18} /></Button>
+						<div ref={devicesRef} className="relative">
+							<button onClick={() => { setShowDevices(s => !s); if (!showDevices) loadDevices() }} className="px-2 py-1 text-[11px] rounded-md border border-white/10 hover:border-white/25 text-white/60 hover:text-white/90 transition-colors">Devices</button>
+							{showDevices && (
+								<div className="absolute right-0 top-full mt-2 w-64 bg-neutral-900/95 backdrop-blur-md border border-white/10 rounded-lg shadow-xl p-2 flex flex-col gap-1 text-xs z-50">
+									<div className="flex items-center justify-between mb-1">
+										<span className="font-semibold text-white/80">Devices</span>
+										<button className="text-white/40 hover:text-white/70 text-[10px]" onClick={() => setShowDevices(false)}>Close</button>
+									</div>
+									{loadingDevices && <div className="animate-pulse text-white/50 py-2">Loading…</div>}
+									{!loadingDevices && !devices.length && <div className="text-white/40 py-2">No devices found. Open Spotify on another device.</div>}
+									{devices.map(d => (
+										<button key={d.id} onClick={async () => { await API.transfer(d.id); loadDevices(); }} className={`flex items-center justify-between px-2 py-1 rounded hover:bg-white/5 text-left ${d.is_active ? 'bg-emerald-500/20 text-emerald-200' : 'text-white/70'}`}>
+											<span className="truncate max-w-[140px]">{d.name || 'Unnamed'}</span>
+											<span className="text-[10px] opacity-70">{d.type}</span>
+										</button>
+									))}
+								</div>
+							)}
+						</div>
 					</div>
 					<div className="flex items-center gap-3">
 						<div className="text-[11px] typo-num text-white/60 w-10 text-right">{fmt(pos)}</div>
@@ -144,6 +203,10 @@ export default function PlayerBar() {
 						{['Track A', 'Track B', 'Track C'].map(t => <li key={t} className="truncate opacity-80 hover:opacity-100">{t}</li>)}
 					</ul>
 				</div>
+			)}
+			{showDevices && (
+				// overlay click catcher (optional future)
+				<div />
 			)}
 		</div>
 	)

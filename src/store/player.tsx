@@ -26,6 +26,7 @@ visualizer: 'bars' | 'wave' | 'particles'
 	// user profile and library
 	profile: { displayName?: string; avatarUrl?: string } | null
 	playlists: any[]
+	devices?: any[]
  authError: string | null
 	sidebarCollapsed: boolean
 	setSidebarCollapsed: (b: boolean) => void
@@ -39,6 +40,7 @@ setTokens: (a: string, r: string | null) => void
 setAuthed: (b: boolean) => void
 	setProfile: (p: PlayerState['profile']) => void
 	setPlaylists: (pl: any[]) => void
+	setDevices?: (d: any[]) => void
 		setAuthError: (s: string | null) => void
 login: () => void
 logout: () => void
@@ -78,6 +80,7 @@ presets: (() => {
 })(),
 profile: null,
 playlists: [],
+devices: [],
 sidebarCollapsed: (() => {
 	if (typeof localStorage === 'undefined') return true
 	try { const v = localStorage.getItem('sidebarCollapsed'); return v ? JSON.parse(v) : true } catch { return true }
@@ -112,6 +115,7 @@ setTokens: (accessToken, refreshToken) => set({ accessToken, refreshToken }),
 setAuthed: (b) => set({ isAuthed: b }),
 setProfile: (p) => set({ profile: p }),
 setPlaylists: (pl) => set({ playlists: pl }),
+setDevices: (d) => set({ devices: d }),
 setAuthError: (s) => set({ authError: s }),
 setSidebarCollapsed: (b) => { set({ sidebarCollapsed: b }); try { localStorage.setItem('sidebarCollapsed', JSON.stringify(b)) } catch {} },
 login: async () => { try { await authorize(); set({ authError: null }) } catch (err: any) { set({ authError: String(err?.message || err) }); } },
