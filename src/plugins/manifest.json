@@ -1,0 +1,11 @@
+[
+  {
+    "id": "musicalColors",
+    "name": "Musical Colors",
+    "version": "0.1.0",
+    "author": "Example",
+    "description": "Color shifting shapes responding to FFT bands and beats.",
+    "kind": "three",
+    "capabilities": ["beat","fft","waveform"]
+  }
+]

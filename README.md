@@ -88,3 +88,70 @@ Open interactive UI mode:
 npm run test:ui
 ```
 
+## Visualization Plug‑in System (WMP-Style)
+
+This project includes a modular music visualization architecture inspired by Windows Media Player's visualization DLL workflow. Each visualization is a self-contained plug‑in living under `src/plugins/<pluginId>/plugin.ts` and exporting a factory `createPlugin()` that returns an object implementing `IVisualizationPlugin`.
+
+### Core Concepts
+
+- `VisualizationManager` dynamically discovers plug‑ins via `import.meta.glob('../plugins/*/plugin.ts')`.
+- Each plug‑in declares metadata (`meta`) plus lifecycle methods analogous to COM objects:
+  - `initialize(graphicsContext)` – prepare scene / resources.
+  - `renderFrame(audioFrame)` – draw one frame given audio analysis.
+  - `resize?(w,h,dpr)` – optional resize handling.
+  - `shutdown()` – cleanup GPU/DOM resources.
+- Graphics contexts: Three.js (`kind: 'three'`) or Canvas2D (`kind: 'canvas2d'`). A plug‑in chooses its kind via `meta.kind` and the manager provisions the appropriate context.
+
+### Audio Frame Data
+`VisualizationAudioFrame` delivers synchronized analysis each frame:
+```
+{
+  time, dt, bpm, beat, beatProgress,
+  bands: { low, mid, high },
+  fft: Float32Array,           // normalized frequency magnitudes
+  waveform: Float32Array,      // time-domain samples
+  amplitude                    // overall loudness
+}
+```
+
+### Usage Example
+```ts
+import { VisualizationManager } from './visualization'
+
+const container = document.getElementById('viz-container')!
+const manager = new VisualizationManager({ container })
+await manager.discover()            // enumerate available plug‑ins
+await manager.loadPlugin('musicalColors')
+
+// On each audio analysis tick (e.g., from Web Audio / Spotify SDK):
+manager.submitAudioFrame({
+  bpm: 122,
+  beat: isBeat,
+  beatProgress: beatPhase,
+  bands: { low, mid, high },
+  fft, waveform, amplitude
+})
+```
+The internal render loop owns `time` and `dt`; feed new audio data as it arrives.
+
+### Adding a New Plug‑in
+1. Create folder: `src/plugins/myVisualizer/`.
+2. Add `plugin.ts` exporting `createPlugin()` that returns an object implementing `IVisualizationPlugin`.
+3. Set `meta.kind` to `'three'` or `'canvas2d'`.
+4. (Optional) Extend `manifest.json` for documentation / external discovery.
+5. The manager will pick it up automatically on next refresh.
+
+### Sample Plug‑in Included
+`musicalColors` – Three.js shapes whose colors & transforms react to bass/mid/high bands, amplitude, and beat pulses.
+
+### Hot Swapping
+Call `loadPlugin('otherId')` to hot‑swap without reloading the page. The manager shuts down the previous plug‑in and mounts the new one, preserving the container element.
+
+### Extensibility Ideas
+- Add a worker-based FFT fallback if upstream analysis missing.
+- Provide a capability negotiation layer (e.g., a plug‑in requests `fft|beat`; manager downgrades if unavailable).
+- Implement screenshot / recording hooks (WebGL readPixels, WebCodecs).
+- Add settings injection (`setPluginConfig(pluginId, config)`).
+
+See `src/visualization/` and `src/plugins/musicalColors/` for reference implementations.
+
