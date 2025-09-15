@@ -11,7 +11,9 @@ accessToken: string | null
 refreshToken: string | null
 deviceId: string | null
 isPlaying: boolean
-volume: number
+	volume: number
+	bufferedMs?: number
+	lastProgressUpdateAt?: number // performance.now() timestamp when progressMs snapshot taken
 	prevVolume?: number
 	mute: () => void
 	unmute: () => void
@@ -37,8 +39,6 @@ visualizer: 'bars' | 'wave' | 'particles'
 	reduceMotion?: boolean
 	styleMode?: 'default' | 'nostalgia'
  authError: string | null
-	sidebarCollapsed: boolean
-	setSidebarCollapsed: (b: boolean) => void
 setVisualizer: (v: PlayerState['visualizer']) => void
 setRenderMode: (m: PlayerState['renderMode']) => void
 	setVizSettings: (p: Partial<PlayerState['vizSettings']>) => void
@@ -77,7 +77,7 @@ accessToken: null,
 refreshToken: null,
 deviceId: null,
 isPlaying: false,
-volume: 0.6,
+volume: (() => { try { const v = localStorage.getItem('volume'); if (v!=null) return JSON.parse(v) } catch {} return 0.6 })(),
 	prevVolume: 0.6,
 	mute: () => set(s => ({ prevVolume: s.volume || 0.6, volume: 0 })),
 	unmute: () => set(s => ({ volume: s.prevVolume ?? 0.6 })),
@@ -132,10 +132,6 @@ styleMode: (() => {
 	try { const v = localStorage.getItem('styleMode'); if (v === 'nostalgia') return 'nostalgia' } catch {}
 	return 'default'
 })(),
-sidebarCollapsed: (() => {
-	if (typeof localStorage === 'undefined') return true
-	try { const v = localStorage.getItem('sidebarCollapsed'); return v ? JSON.parse(v) : true } catch { return true }
-})(),
  authError: null,
 setVisualizer: (v) => set({ visualizer: v }),
 setRenderMode: (m) => set({ renderMode: m }),
@@ -171,12 +167,11 @@ setLowPowerMode: (b) => { set({ lowPowerMode: b }); try { localStorage.setItem('
 setReduceMotion: (b) => { set({ reduceMotion: b }); try { localStorage.setItem('reduceMotion', JSON.stringify(b)) } catch {} },
 setStyleMode: (m) => { set({ styleMode: m }); try { localStorage.setItem('styleMode', m) } catch {} },
 setAuthError: (s) => set({ authError: s }),
-setSidebarCollapsed: (b) => { set({ sidebarCollapsed: b }); try { localStorage.setItem('sidebarCollapsed', JSON.stringify(b)) } catch {} },
 login: async () => { try { await initiateAuth(); set({ authError: null }) } catch (err: any) { set({ authError: String(err?.message || err) }); } },
 logout: async () => { await authLogout(); disconnectPlayer(); set({ isAuthed: false, accessToken: null, refreshToken: null, deviceId: null, isPlaying: false, profile: null, playlists: [] }); },
 setDeviceId: (id) => set({ deviceId: id }),
 setIsPlaying: (b) => set({ isPlaying: b }),
-setVolume: (v) => set({ volume: v })
+setVolume: (v) => { set({ volume: v }); try { localStorage.setItem('volume', JSON.stringify(v)) } catch {} }
 	,
 	play: async (uri?: string) => {
 		const state = get()

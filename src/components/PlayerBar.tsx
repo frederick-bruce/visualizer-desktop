@@ -1,218 +1,293 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
-import { Player as API, Me } from '@/lib/spotifyApi'
-import { usePlayerStore } from '@/store/player'
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ListMusic } from 'lucide-react'
+import React, { useEffect, useRef, useState, useCallback } from 'react'
 import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
-import { clamp } from '@/lib/time'
-import { Button } from './ui/Button'
-import { deriveAccentFromArt } from '@/lib/theme'
+import { usePlayerStore } from '@/store/player'
+import { clamp, formatTime } from '@/lib/time'
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ListMusic, Laptop2 } from 'lucide-react'
+import Tooltip from '@/components/ui/Tooltip'
+
+// Minimal device API helpers (could be moved to typed client later)
+async function fetchDevices(token: string) {
+	const r = await fetch('https://api.spotify.com/v1/me/player/devices', { headers: { Authorization: `Bearer ${token}` } })
+	if (!r.ok) throw new Error('device list failed')
+	return r.json()
+}
+
+async function transferTo(token: string, id: string) {
+	await fetch('https://api.spotify.com/v1/me/player', { method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type':'application/json' }, body: JSON.stringify({ device_ids:[id], play:false }) })
+}
 
 export default function PlayerBar() {
 	useSpotifyPlayer()
-	const { isAuthed, isPlaying, volume, setVolume, mute, unmute, login, authError, setAuthError, deviceId } = usePlayerStore()
-	const storeGet = usePlayerStore.getState
-	const [pos, setPos] = useState(0)
-	const [dur, setDur] = useState(0)
-	const [buffered, setBuffered] = useState(0)
-	const [showQueue, setShowQueue] = useState(false)
+	const store = usePlayerStore()
+	const { isAuthed, isPlaying, volume, setVolume, mute, unmute, login, authError, play, pause, next, prev, seek, deviceId } = store as any
+	const { progressMs, durationMs, bufferedMs, lastProgressUpdateAt } = store as any
+
+	// Optimistic / live progress state
+	const [optimisticPos, setOptimisticPos] = useState<number | null>(null)
+	const [dragging, setDragging] = useState(false)
+	const trackBarRef = useRef<HTMLDivElement | null>(null)
+	const hoverRef = useRef<HTMLDivElement | null>(null)
+	const [hoverTime, setHoverTime] = useState<number | null>(null)
 	const [showDevices, setShowDevices] = useState(false)
 	const [devices, setDevices] = useState<any[]>([])
 	const [loadingDevices, setLoadingDevices] = useState(false)
-	const dragging = useRef(false)
-	const dragPos = useRef(0)
-	const barRef = useRef<HTMLDivElement | null>(null)
-	const queueRef = useRef<HTMLDivElement | null>(null)
-	const devicesRef = useRef<HTMLDivElement | null>(null)
+	const [deviceError, setDeviceError] = useState<string | null>(null)
+	const rafRef = useRef<number | null>(null)
 
-	// Poll playback state
-	useEffect(() => {
-		if (!isAuthed) return
-		let cancelled = false
-		const id = setInterval(async () => {
-			try {
-				const res = await fetch('https://api.spotify.com/v1/me/player', { headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } })
-				if (!res.ok) return
-				const data = await res.json()
-				if (cancelled) return
-				if (!dragging.current) setPos(data.progress_ms || 0)
-				setDur(data.item?.duration_ms || 0)
-				setBuffered(Math.min((data.progress_ms || 0) + 15000, data.item?.duration_ms || 0))
-				const it = data.item
-				if (it) {
-					const url = it.album?.images?.[0]?.url || null
-					deriveAccentFromArt(url)
-				}
-				const setter = storeGet().setIsPlaying
-				if (typeof setter === 'function') setter(data.is_playing)
-			} catch {}
-		}, 1000)
-		return () => { cancelled = true; clearInterval(id) }
-	}, [isAuthed])
-
-	const pct = dur ? pos / dur * 100 : 0
-	const bufPct = dur ? buffered / dur * 100 : 0
-
-	const fmt = (ms: number) => {
-		const s = Math.floor(ms / 1000)
-		const m = Math.floor(s / 60)
-		const sec = s % 60
-		return `${m}:${sec.toString().padStart(2, '0')}`
+	// Derived progress with RAF smoothing
+	const getBaseProgress = () => {
+		if (optimisticPos != null) return optimisticPos
+		if (!isPlaying) return progressMs || 0
+		if (progressMs == null) return 0
+		if (!lastProgressUpdateAt) return progressMs
+		const elapsed = performance.now() - lastProgressUpdateAt
+		return Math.min(durationMs ?? progressMs, progressMs + elapsed)
 	}
 
-	const moveTo = (clientX: number) => {
-		if (!barRef.current) return
-		const rect = barRef.current.getBoundingClientRect()
+	const [renderProgress, setRenderProgress] = useState(getBaseProgress())
+
+	const tick = useCallback(() => {
+		setRenderProgress(getBaseProgress())
+		if (isPlaying && !dragging) rafRef.current = requestAnimationFrame(tick)
+	}, [isPlaying, dragging, progressMs, optimisticPos, lastProgressUpdateAt, durationMs])
+
+	useEffect(() => {
+		if (rafRef.current) cancelAnimationFrame(rafRef.current)
+		if (isPlaying && !dragging) rafRef.current = requestAnimationFrame(tick)
+		return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
+	}, [isPlaying, dragging, tick])
+
+	// Reconcile optimistic position when real progress updates (allow small drift)
+	useEffect(() => {
+		if (optimisticPos == null) return
+		const base = progressMs
+		if (base == null) return
+		const drift = Math.abs(base - optimisticPos)
+		if (drift < 150) { setOptimisticPos(null) } else { setOptimisticPos(null); setRenderProgress(base) }
+	}, [progressMs, optimisticPos])
+
+	// Scrub logic
+	const pos = Math.min(renderProgress, durationMs ?? renderProgress)
+	const dur = durationMs ?? 0
+	const buffered = Math.min(bufferedMs ?? 0, dur || Infinity)
+	const pct = dur ? pos / dur : 0
+	const bufPct = dur ? buffered / dur : 0
+
+	const updateFromClientX = (clientX: number) => {
+		if (!trackBarRef.current || !dur) return
+		const rect = trackBarRef.current.getBoundingClientRect()
 		const x = clamp(clientX - rect.left, 0, rect.width)
 		const ratio = rect.width ? x / rect.width : 0
-		const newPos = ratio * dur
-		dragPos.current = newPos
-		setPos(newPos)
+		const newMs = ratio * dur
+		setOptimisticPos(newMs)
+		setRenderProgress(newMs)
 	}
 
-	const onPointerDown = useCallback((e: React.PointerEvent) => {
-		if (!barRef.current) return
-		dragging.current = true
-		barRef.current.setPointerCapture(e.pointerId)
-		moveTo(e.clientX)
-	}, [dur])
-
-	useEffect(() => {
-		const onMove = (e: PointerEvent) => { if (dragging.current) moveTo(e.clientX) }
-		const onUp = () => { if (dragging.current) { dragging.current = false; API.seek(dragPos.current).catch(()=>{}) } }
-		window.addEventListener('pointermove', onMove)
-		window.addEventListener('pointerup', onUp)
-		return () => { window.removeEventListener('pointermove', onMove); window.removeEventListener('pointerup', onUp) }
-	}, [dur])
-
-	// Device loader
-	const loadDevices = useCallback(async () => {
+	const onPointerDown = (e: React.PointerEvent) => {
 		if (!isAuthed) return
-		setLoadingDevices(true)
-		try {
-			const list = await Me.devices() as any
-			setDevices(list?.devices || [])
-			if (!list?.devices?.length) {
-				// no devices
-			} else {
-				setAuthError(null)
-			}
-		} catch (err: any) {
-			setAuthError('Device fetch failed')
-		} finally {
-			setLoadingDevices(false)
+		setDragging(true)
+		updateFromClientX(e.clientX)
+		trackBarRef.current?.setPointerCapture(e.pointerId)
+	}
+	const onPointerMove = (e: React.PointerEvent) => { if (dragging) updateFromClientX(e.clientX) }
+	const onPointerUp = async () => {
+		if (!dragging) return
+		setDragging(false)
+		if (optimisticPos != null) {
+			const target = optimisticPos
+			try { await seek(Math.floor(target)); } catch { /* swallow */ }
 		}
-	}, [isAuthed, setAuthError])
+	}
 
-	useEffect(() => {
-		if (!isAuthed) return
-		loadDevices()
-		const id = setInterval(loadDevices, 15000)
-		return () => clearInterval(id)
-	}, [isAuthed, loadDevices])
+	// Hover time tooltip
+	const onMouseMove = (e: React.MouseEvent) => {
+		if (!trackBarRef.current || !dur) { setHoverTime(null); return }
+		const rect = trackBarRef.current.getBoundingClientRect()
+		const x = clamp(e.clientX - rect.left, 0, rect.width)
+		const ratio = rect.width ? x / rect.width : 0
+		setHoverTime(ratio * dur)
+		if (hoverRef.current) {
+			const hw = 44
+			let left = rect.left + x - hw/2
+			left = clamp(left, 4, window.innerWidth - hw - 4)
+			hoverRef.current.style.left = left + 'px'
+		}
+	}
+	const clearHover = () => setHoverTime(null)
 
-	// Keyboard shortcuts
+	// Keyboard controls (timeline focus)
+	const onTimelineKey = (e: React.KeyboardEvent) => {
+		if (!dur) return
+		let delta = 0
+		if (e.key === 'ArrowLeft') delta = -5000
+		else if (e.key === 'ArrowRight') delta = 5000
+		else if (e.key.toLowerCase() === 'j') delta = -10000
+		else if (e.key.toLowerCase() === 'l') delta = 10000
+		else if (e.key === 'Home') { e.preventDefault(); setOptimisticPos(0); setRenderProgress(0); seek(0); return }
+		else if (e.key === 'End') { e.preventDefault(); setOptimisticPos(dur); setRenderProgress(dur); seek(dur); return }
+		if (delta) {
+			e.preventDefault()
+			const target = clamp(pos + delta, 0, dur)
+			setOptimisticPos(target)
+			setRenderProgress(target)
+			seek(target).catch(()=>{})
+		}
+	}
+
+	// Global volume & mute keys
 	useEffect(() => {
 		const handler = (e: KeyboardEvent) => {
-			if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement || (e.target as HTMLElement)?.contentEditable === 'true') return
-			if (e.key === ' ') { e.preventDefault(); isPlaying ? API.pause() : API.play() }
-			else if (e.key.toLowerCase() === 'm') { e.preventDefault(); volume > 0 ? mute() : unmute() }
-			else if (e.key.toLowerCase() === 'j') { e.preventDefault(); API.seek(Math.max(0, pos - 10000)).catch(()=>{}) }
-			else if (e.key.toLowerCase() === 'l') { e.preventDefault(); API.seek(Math.min(dur, pos + 10000)).catch(()=>{}) }
+			if ((e.target as HTMLElement)?.closest('input,textarea,[contenteditable="true"]')) return
+			if (e.key.toLowerCase() === 'm') { e.preventDefault(); volume === 0 ? unmute() : mute() }
 			else if (e.key === 'ArrowUp') { e.preventDefault(); setVolume(clamp(volume + 0.05, 0, 1)) }
 			else if (e.key === 'ArrowDown') { e.preventDefault(); setVolume(clamp(volume - 0.05, 0, 1)) }
 		}
 		window.addEventListener('keydown', handler)
 		return () => window.removeEventListener('keydown', handler)
-	}, [isPlaying, volume, pos, dur, mute, unmute, setVolume])
+	}, [volume, mute, unmute, setVolume])
 
-	// Dismiss queue when clicking outside
-	useEffect(() => {
-		const onDoc = (e: MouseEvent) => {
-			if (!queueRef.current) return
-			if (!queueRef.current.contains(e.target as Node)) setShowQueue(false)
-		}
-		if (showQueue) document.addEventListener('mousedown', onDoc)
-		return () => document.removeEventListener('mousedown', onDoc)
-	}, [showQueue])
+	// Devices popover
+	const loadDevices = async () => {
+		if (!isAuthed) return
+		try {
+			setLoadingDevices(true); setDeviceError(null)
+			const token = localStorage.getItem('access_token')
+			if (!token) throw new Error('no token')
+			const j = await fetchDevices(token)
+			setDevices(j.devices || [])
+		} catch (e:any) {
+			setDeviceError('Failed to load devices')
+		} finally { setLoadingDevices(false) }
+	}
+	useEffect(() => { if (showDevices) loadDevices() }, [showDevices])
+
+	const activeDevice = devices.find(d => d.is_active) || null
+
+	const disabled = !isAuthed
+
+		const noDevice = isAuthed && !deviceId
+
+	const transportBtn = (icon: React.ReactElement, label: string, onClick: ()=>void, props: any={}) => (
+		<Tooltip label={label}>
+			<button
+				type="button"
+				aria-label={label}
+				disabled={disabled}
+				onClick={onClick}
+				className="h-10 w-10 md:h-11 md:w-11 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent,#1DB954)]"
+				{...props}
+			>{icon}</button>
+		</Tooltip>
+	)
 
 	return (
-		<div className="w-full bg-card p-3 md:p-4 rounded-xl shadow-lg wmp-shell relative">
+		<div className="w-full h-full rounded-2xl border border-white/10 bg-white/5 backdrop-blur-sm px-4 md:px-6 py-2 md:py-3 flex flex-col gap-2 select-none text-white">
 			{!isAuthed && (
-				<div className="absolute -top-7 left-0 right-0 h-7 flex items-center gap-3 px-3 text-[11px] bg-gradient-to-r from-emerald-500/20 via-emerald-400/15 to-emerald-500/20 border border-emerald-400/30 rounded-t-lg backdrop-blur-sm">
-					<span className="font-medium text-emerald-200 tracking-wide">Not connected</span>
-					<button onClick={() => login()} className="px-2 py-0.5 rounded bg-emerald-500/30 hover:bg-emerald-500/50 text-emerald-50 text-[11px] font-medium transition-colors">Connect Spotify</button>
-					{authError && <span className="text-red-300">{authError}</span>}
+				<div className="text-[11px] mb-1 text-amber-300/80 flex gap-2 items-center">
+					<span>Not connected.</span>
+					<button onClick={login} className="underline hover:text-amber-200">Connect</button>
+					{authError && <span className="text-red-400">{authError}</span>}
 				</div>
 			)}
-			{!isAuthed ? (
-				<div className="text-white/70 text-sm flex items-center gap-4">
-					<span className="opacity-80">Connect to Spotify to start playback.</span>
-					<button onClick={() => login()} className="px-3 py-1.5 rounded-md bg-emerald-500/30 hover:bg-emerald-500/50 text-emerald-50 text-sm font-medium transition-colors">Connect</button>
-					<a href="https://support.spotify.com/" target="_blank" className="text-emerald-300/80 hover:text-emerald-200 text-xs underline">Help</a>
-				</div>
-			) : (
-				<div className="flex flex-col gap-4">
-					<div className="flex items-center justify-center gap-5">
-						<Button variant="ghost" onClick={() => API.prev()} aria-label="Previous" className="h-11 w-11 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dynamic)]"><SkipBack size={20} /></Button>
-						<Button onClick={() => (isPlaying ? API.pause() : API.play())} aria-label={isPlaying ? 'Pause' : 'Play'} className="h-12 w-12 rounded-full text-white bg-white/10 hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dynamic)]">{isPlaying ? <Pause size={24} /> : <Play size={24} />}</Button>
-						<Button variant="ghost" onClick={() => API.next()} aria-label="Next" className="h-11 w-11 rounded-full focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dynamic)]"><SkipForward size={20} /></Button>
-						<div className="hidden md:flex items-center ml-2 h-3 w-16 bg-white/10 rounded">
-							<div className="h-full bg-[var(--accent-dynamic)] rounded" style={{ width: `${Math.round(volume * 100)}%` }} />
-						</div>
-						<Button variant="ghost" aria-label="Queue" onClick={() => setShowQueue(s => !s)} className="h-10 w-10 rounded-full flex items-center justify-center hover:bg-white/15"><ListMusic size={18} /></Button>
-						<div ref={devicesRef} className="relative">
-							<button onClick={() => { setShowDevices(s => !s); if (!showDevices) loadDevices() }} className="px-2 py-1 text-[11px] rounded-md border border-white/10 hover:border-white/25 text-white/60 hover:text-white/90 transition-colors">Devices</button>
-							{showDevices && (
-								<div className="absolute right-0 top-full mt-2 w-64 bg-neutral-900/95 backdrop-blur-md border border-white/10 rounded-lg shadow-xl p-2 flex flex-col gap-1 text-xs z-50">
-									<div className="flex items-center justify-between mb-1">
-										<span className="font-semibold text-white/80">Devices</span>
-										<button className="text-white/40 hover:text-white/70 text-[10px]" onClick={() => setShowDevices(false)}>Close</button>
-									</div>
-									{loadingDevices && <div className="animate-pulse text-white/50 py-2">Loading…</div>}
-									{!loadingDevices && !devices.length && <div className="text-white/50 py-2 text-xs leading-relaxed">
-										<span className="block font-medium text-white/70 mb-1">No active device</span>
-										Open Spotify on another device (phone / desktop) and press play, then click Refresh.
-										<button onClick={loadDevices} className="mt-2 inline-block px-2 py-1 rounded bg-white/10 hover:bg-white/15">Refresh</button>
-									</div>}
-									{devices.map(d => (
-										<button key={d.id} onClick={async () => { await API.transfer(d.id); loadDevices(); }} className={`flex items-center justify-between px-2 py-1 rounded hover:bg-white/5 text-left ${d.is_active ? 'bg-emerald-500/20 text-emerald-200' : 'text-white/70'}`}>
-											<span className="truncate max-w-[140px]">{d.name || 'Unnamed'}</span>
-											<span className="text-[10px] opacity-70">{d.type}</span>
-										</button>
-									))}
-								</div>
-							)}
-						</div>
-					</div>
-					<div className="flex items-center gap-3">
-						<div className="text-[11px] typo-num text-white/60 w-10 text-right">{fmt(pos)}</div>
-						<div ref={barRef} className="flex-1 h-5 flex items-center cursor-pointer select-none" role="slider" aria-label="Progress" aria-valuemin={0} aria-valuemax={dur} aria-valuenow={pos} onPointerDown={onPointerDown}>
-							<div className="relative w-full h-2 rounded-full bg-white/10 overflow-hidden">
-								<div className="absolute inset-y-0 left-0 bg-white/20" style={{ width: `${bufPct}%` }} />
-								<div className="absolute inset-y-0 left-0 bg-[var(--accent-dynamic)]" style={{ width: `${pct}%` }} />
-								<div className="absolute -top-1 h-4 w-4 rounded-full bg-white shadow ring-2 ring-black/30 -translate-x-1/2" style={{ left: `${pct}%` }} />
+			<div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-6 w-full">
+						{noDevice && (
+							<div className="absolute -top-6 left-4 text-[11px] px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-200 flex items-center gap-2">
+								<span>No active device</span>
+								<a href="https://open.spotify.com" target="_blank" className="underline hover:text-amber-100">Open Spotify</a>
 							</div>
+						)}
+				{/* Left cluster */}
+				<div className="flex items-center gap-3 md:gap-4 order-1">
+					{transportBtn(<SkipBack size={18} />, 'Previous', () => prev())}
+					{transportBtn(isPlaying ? <Pause size={22}/> : <Play size={22}/> , isPlaying ? 'Pause' : 'Play', () => (isPlaying ? pause() : play()))}
+					{transportBtn(<SkipForward size={18} />, 'Next', () => next())}
+				</div>
+				{/* Center timeline */}
+				<div className="flex-1 order-3 md:order-2 flex flex-col gap-1 min-w-[200px]">
+					<div className="flex md:hidden justify-between text-[10px] font-mono text-white/60">
+						<span>{formatTime(pos)}</span>
+						<span>{formatTime(dur)}</span>
+					</div>
+					<div
+						role="slider"
+						aria-label="Playback position"
+						aria-valuemin={0}
+						aria-valuemax={dur || 0}
+						aria-valuenow={Math.floor(pos) || 0}
+						tabIndex={0}
+						onKeyDown={onTimelineKey}
+						ref={trackBarRef}
+						onPointerDown={onPointerDown}
+						onPointerMove={onPointerMove}
+						onPointerUp={onPointerUp}
+						onMouseMove={onMouseMove}
+						onMouseLeave={clearHover}
+						className={"relative h-6 flex items-center cursor-pointer group outline-none" + (disabled ? ' opacity-40 cursor-not-allowed' : '')}
+					>
+						<div className="w-full h-2 rounded-full bg-white/10 overflow-hidden relative">
+							<div className="absolute inset-y-0 left-0 bg-white/15" style={{ width: `${bufPct*100}%` }} />
+							<div className="absolute inset-y-0 left-0 bg-[var(--accent,#1DB954)]" style={{ width: `${pct*100}%` }} />
+							<div className="absolute top-1/2 -translate-y-1/2 h-3 w-3 md:h-4 md:w-4 rounded-full bg-white shadow ring-2 ring-black/30 translate-x-[-50%] transition-transform duration-75 will-change-transform" style={{ left: `${pct*100}%` }} />
 						</div>
-						<div className="text-[11px] typo-num text-white/60 w-10">{fmt(dur)}</div>
 					</div>
-					<div className="flex items-center gap-2">
-						<Button variant="ghost" aria-label={volume === 0 ? 'Unmute' : 'Mute'} onClick={() => (volume === 0 ? unmute() : mute())} className="h-9 w-9 rounded-md flex items-center justify-center hover:bg-white/15">{volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}</Button>
-						<input type="range" min={0} max={1} step={0.01} value={volume} onChange={(e) => setVolume(clamp(Number(e.target.value), 0, 1))} aria-label="Volume" className="w-32 h-2 accent-[var(--accent-dynamic)] cursor-pointer" />
+					<div className="hidden md:flex justify-between text-[11px] font-mono text-white/60 leading-none">
+						<span>{formatTime(pos)}</span>
+						<span>{formatTime(dur)}</span>
+					</div>
+					{hoverTime != null && (
+						<div ref={hoverRef} className="pointer-events-none fixed bottom-[calc(72px+54px)] md:bottom-[calc(72px+40px)] translate-y-[-4px] px-2 py-1 rounded bg-black/80 border border-white/10 text-[11px] font-mono text-white/90 shadow-lg z-[60]">
+							{formatTime(hoverTime)}
+						</div>
+					)}
+				</div>
+				{/* Right cluster */}
+				<div className="flex items-center gap-3 md:gap-4 order-2 md:order-3 ml-auto">
+					{/* Volume */}
+					<Tooltip label={volume === 0 ? 'Unmute (M)' : 'Mute (M)'}>
+						<button
+							aria-label={volume === 0 ? 'Unmute' : 'Mute'}
+							onClick={() => (volume === 0 ? unmute() : mute())}
+							className="h-9 w-9 rounded-md flex items-center justify-center bg-white/5 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent,#1DB954)]"
+						>{volume === 0 ? <VolumeX size={18}/> : <Volume2 size={18}/>}</button>
+					</Tooltip>
+					<input
+						type="range" min={0} max={1} step={0.01}
+						value={volume}
+						onChange={e => setVolume(clamp(Number(e.target.value),0,1))}
+						aria-label="Volume"
+						className="w-24 md:w-32 accent-[var(--accent,#1DB954)] h-2 cursor-pointer"
+					/>
+					{/* Devices */}
+					<div className="relative">
+						<Tooltip label="Devices">
+							<button
+								aria-haspopup="dialog"
+								aria-expanded={showDevices}
+								onClick={() => setShowDevices(s => !s)}
+								className="px-2 h-9 rounded-md text-[12px] flex items-center gap-2 bg-white/5 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
+							><Laptop2 size={16}/><span className="hidden md:inline-block max-w-[120px] truncate text-white/70">{activeDevice?.name || 'Devices'}</span></button>
+						</Tooltip>
+						{showDevices && (
+							<div className="absolute right-0 bottom-full mb-2 w-64 rounded-xl border border-white/10 bg-[#0d1418]/95 backdrop-blur-md shadow-xl p-3 text-xs flex flex-col gap-2 z-50">
+								<div className="flex items-center justify-between">
+									<span className="font-semibold text-white/80 text-sm">Devices</span>
+									<button onClick={() => setShowDevices(false)} className="text-white/40 hover:text-white/70 text-[10px]">Close</button>
+								</div>
+								{loadingDevices && <div className="animate-pulse text-white/60 py-4 text-center">Loading…</div>}
+								{!loadingDevices && !devices.length && <div className="text-white/50 py-1 leading-relaxed">No active devices.<br/><button onClick={loadDevices} className="mt-2 px-2 py-1 rounded bg-white/10 hover:bg-white/15">Refresh</button></div>}
+								{!loadingDevices && devices.map(d => (
+									<button key={d.id} onClick={async () => { const token = localStorage.getItem('access_token'); if (!token) return; try { await transferTo(token, d.id); loadDevices(); } catch { setDeviceError('Transfer failed'); } }}
+										className={`flex items-center justify-between px-2 py-1.5 rounded-md text-left hover:bg-white/10 ${d.is_active ? 'bg-[var(--accent,#1DB954)]/25 text-[var(--accent,#1DB954)]' : 'text-white/70'}`}> 
+										<span className="truncate max-w-[140px]">{d.name || 'Unnamed'}</span>
+										<span className="text-[10px] opacity-70">{d.type}</span>
+									</button>
+								))}
+								{deviceError && <div className="text-red-400 text-[11px]">{deviceError}</div>}
+							</div>
+						)}
 					</div>
 				</div>
-			)}
-			{showQueue && (
-				<div ref={queueRef} className="absolute bottom-full mb-2 right-4 w-64 rounded-lg border border-white/10 bg-black/70 backdrop-blur-md p-3 shadow-xl text-sm">
-					<div className="font-semibold mb-2">Up Next</div>
-					<ul className="space-y-1">
-						{['Track A', 'Track B', 'Track C'].map(t => <li key={t} className="truncate opacity-80 hover:opacity-100">{t}</li>)}
-					</ul>
-				</div>
-			)}
-			{showDevices && (
-				// overlay click catcher (optional future)
-				<div />
-			)}
+			</div>
 		</div>
 	)
 }

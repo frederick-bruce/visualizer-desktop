@@ -71,6 +71,10 @@ export function useSpotifyPlayer() {
 							st.track = { id: current.id, name: current.name, artists: current.artists?.map((a:any)=>a.name).join(', '), albumArt: current.album?.images?.[0]?.url }
 							st.durationMs = current.duration_ms
 							st.progressMs = state.position
+							st.lastProgressUpdateAt = performance.now()
+							// Very rough buffered estimate (Spotify Web Playback SDK does not expose; leave room for future network-based heuristic)
+							const bufferedLead = 12_000 // optimistic 12s lookahead
+							st.bufferedMs = Math.min(state.position + bufferedLead, current.duration_ms)
 						}
 					} catch (e) {
 						console.warn('state change error', e)

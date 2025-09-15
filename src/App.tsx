@@ -1,11 +1,9 @@
 import { Outlet, useSearchParams } from 'react-router-dom'
-import Sidebar from './components/Sidebar'
 import PlayerBar from './components/PlayerBar'
 import NowPlayingHeader from '@/components/NowPlayingHeader'
 import TopTabs from '@/components/TopTabs'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState } from 'react'
 import { usePlayerStore } from '@/store/player'
-import { accentCssVar } from '@/lib/theme'
 
 
 export default function App() {
@@ -56,30 +54,32 @@ export default function App() {
 	}, [reduceMotion])
 
 	return (
-		<div className="h-screen w-screen text-white font-sans bg-gradient-to-br from-[#061017] via-[#09141a] to-[#07141c]">
-			<div className="h-full max-w-[1600px] mx-auto flex flex-col px-2 md:px-4 py-2 md:py-4 gap-3 md:gap-4">
-				<div className="flex min-h-0 flex-1 gap-3 md:gap-4">
-					<Sidebar />
-					<div className="flex flex-col flex-1 min-h-0 gap-3 md:gap-4">
-						<NowPlayingHeader />
-						<TopTabs />
-						<div className="relative flex-1 min-h-0 rounded-2xl border border-white/10 bg-black/40 backdrop-blur-md shadow-[0_8px_32px_-8px_rgba(0,0,0,0.6)]">
-							<button
-								className="absolute top-2 right-2 z-10 px-2 py-1 text-[11px] rounded-md bg-white/10 hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dynamic)]"
-								onClick={() => {
-									const el = document.querySelector('.viz-root') as HTMLElement | null
-									if (el && el.requestFullscreen) el.requestFullscreen().catch(()=>{})
-								}}
-							>Fullscreen</button>
-							<div className="viz-root w-full h-full">
-								<Outlet />
-							</div>
-						</div>
-						<PlayerBar />
-					</div>
+		<div className="h-screen w-screen text-white font-sans bg-gradient-to-br from-zinc-950 via-zinc-950 to-zinc-900">
+			<div className="h-full w-full grid grid-rows-[auto_auto_1fr_auto] gap-3 md:gap-4 px-4 py-3 md:px-6 md:py-5 max-w-[1800px] mx-auto box-border">
+				<NowPlayingHeader />
+				{/* Tabs bar */}
+				<div className="relative z-10">
+					<TopTabs />
 				</div>
-				{showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+				{/* Visualizer region */}
+				<div className="relative min-h-0 rounded-2xl border border-white/10 bg-gradient-to-b from-[#0d1418] via-[#0a1014] to-[#070d11] backdrop-blur-sm shadow-[0_8px_40px_-12px_rgba(0,0,0,0.8)] overflow-hidden flex items-stretch justify-stretch">
+					<div className="viz-root w-full h-full">
+						<Outlet />
+					</div>
+					<button
+						className="absolute top-2 right-2 z-20 px-2 py-1 text-[11px] rounded-md bg-white/10 hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dynamic)]"
+						onClick={() => {
+							const el = document.querySelector('.viz-root') as HTMLElement | null
+							if (el && el.requestFullscreen) el.requestFullscreen().catch(()=>{})
+						}}
+					>Fullscreen</button>
+				</div>
+				{/* Player bar */}
+				<div className="h-[72px]">
+					<PlayerBar />
+				</div>
 			</div>
+			{showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
 		</div>
 	)
 }
