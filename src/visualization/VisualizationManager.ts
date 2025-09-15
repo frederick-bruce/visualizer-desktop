@@ -1,162 +1,196 @@
-import { IVisualizationPlugin, VisualizationAudioFrame, VisualizationGraphicsContext, VisualizationPluginMeta, VisualizationPluginModule, PluginDiscoveryRecord } from './types'
-import { createThreeGraphicsContext, createCanvas2DGraphicsContext } from './graphics/contexts'
-
-// Manager responsible for discovering, loading, switching, and rendering visualization plugins.
-export interface VisualizationManagerOptions {
-  container?: HTMLElement
-  preferredKind?: 'three' | 'canvas2d'
-  lowPowerMode?: boolean
-  targetFps?: number // used when lowPowerMode active
-}
-
-interface LoadedPlugin {
-  instance: IVisualizationPlugin
-  graphics: VisualizationGraphicsContext
-}
+import * as THREE from 'three'
+import { VisualizationPlugin } from './plugins/types'
 
 export class VisualizationManager {
-  private container: HTMLElement | null
-  private options: VisualizationManagerOptions
-  private discovered: PluginDiscoveryRecord[] = []
-  private current: LoadedPlugin | null = null
-  private currentId: string | null = null
-  private rafId: number | null = null
-  private lastTime = performance.now()/1000
-  private frameCounter = 0
+  private container: HTMLElement | null = null
+  private analyser: AnalyserNode | null = null
+  private renderer: THREE.WebGLRenderer | null = null
+  private scene: THREE.Scene | null = null
+  private camera: THREE.PerspectiveCamera | null = null
+  private plugin: VisualizationPlugin | null = null
+  private currentPluginId: string | null = null
+  private animationHandle: number | null = null
+  private lastTime = performance.now() / 1000
+  private fftData: Uint8Array | null = null
+  private waveData: Uint8Array | null = null
+  private queuedPlugin: string | null = null
+  private resizeObserver: ResizeObserver | null = null
+  private energyProvider: (() => { low: number; mid: number; high: number; isBeat: boolean; bpm?: number }) | null = null
 
-  constructor(opts: VisualizationManagerOptions = {}) {
-    this.container = opts.container || null
-    this.options = { targetFps: 30, ...opts }
-  }
+  get activePluginId() { return this.currentPluginId }
 
-  // Discover plugins via Vite's eager glob (each plugin exports createPlugin)
-  async discover(): Promise<VisualizationPluginMeta[]> {
-    // Pattern: src/plugins/*/plugin.ts
-    const modules = import.meta.glob('../plugins/*/plugin.ts') as Record<string, () => Promise<VisualizationPluginModule>>
-    this.discovered = Object.entries(modules).map(([path, loader]) => ({ path, loader }))
-    const metas: VisualizationPluginMeta[] = []
-    for (const rec of this.discovered) {
-      try {
-        const mod = await rec.loader()
-        const plugin = mod.createPlugin()
-        metas.push(plugin.meta)
-        // Immediate shutdown after probing meta
-        plugin.shutdown()
-      } catch (e) { console.warn('[viz] failed loading plugin meta', rec.path, e) }
+  async initialize(container: HTMLElement, analyser: AnalyserNode): Promise<void> {
+    this.container = container
+    this.analyser = analyser
+    // Core three setup
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
+    this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1))
+    this.renderer.setClearColor(0x000000, 0)
+    this.scene = new THREE.Scene()
+    this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100)
+    this.camera.position.set(0,0,5)
+    const amb = new THREE.AmbientLight(0xffffff, 0.4); this.scene.add(amb)
+    const dir = new THREE.DirectionalLight(0xffffff, 0.8); dir.position.set(3,5,4); this.scene.add(dir)
+    container.appendChild(this.renderer.domElement)
+    this.setupResize()
+    this.resize()
+    // Allocate audio buffers
+    this.fftData = new Uint8Array(analyser.frequencyBinCount)
+    this.waveData = new Uint8Array(analyser.fftSize)
+    if (this.queuedPlugin) {
+      const q = this.queuedPlugin; this.queuedPlugin = null; await this.loadPlugin(q)
     }
-    return metas
   }
 
-  setContainer(el: HTMLElement) { this.container = el; this.resize() }
+  private setupResize() {
+    if (!this.container) return
+    this.resizeObserver = new ResizeObserver(() => this.resize())
+    this.resizeObserver.observe(this.container)
+    window.addEventListener('resize', this.onWindowResize)
+  }
+  private onWindowResize = () => this.resize()
 
-  private createGraphics(kind: 'three' | 'canvas2d'): VisualizationGraphicsContext | null {
-    if (kind === 'three') {
-      try {
-        const g = createThreeGraphicsContext()
-        if (this.container) this.container.appendChild(g.canvas)
-        return g
-      } catch (e) { console.warn('[viz] three context failed, fallback canvas2d', e); return this.createGraphics('canvas2d') }
+  private resize() {
+    if (!this.container || !this.renderer || !this.camera) return
+    const w = this.container.clientWidth
+    const h = this.container.clientHeight
+    this.camera.aspect = w / Math.max(1, h)
+    this.camera.updateProjectionMatrix()
+    this.renderer.setSize(w, h, false)
+  }
+
+  async loadPlugin(id: string): Promise<void> {
+    if (id === this.currentPluginId) return
+    if (!this.renderer || !this.scene || !this.camera || !this.analyser || !this.container) {
+      this.queuedPlugin = id
+      return
     }
-    const g2d = createCanvas2DGraphicsContext()
-    if (this.container) this.container.appendChild(g2d.canvas)
-    return g2d
-  }
-
-  async loadPlugin(id: string): Promise<boolean> {
-    if (this.currentId === id) return true
-    const rec = this.discovered.find(r => r.path.includes(`/plugins/${id}/`))
-    if (!rec) { console.warn('[viz] plugin not found', id); return false }
-    await this.unloadCurrent()
+    // Dispose existing
+    if (this.plugin) {
+      try { this.plugin.dispose() } catch {}
+      // Clear scene children except lights (leave first two lights)
+      this.scene.children.slice(2).forEach(c => this.scene!.remove(c))
+    }
+    // Dynamic import by id
+    let mod: any
     try {
-      const mod = await rec.loader()
-      const inst = mod.createPlugin()
-      const graphics = this.createGraphics(inst.meta.kind)!
-      await inst.initialize(graphics)
-      this.current = { instance: inst, graphics }
-      this.currentId = inst.meta.id
-      this.lastTime = performance.now()/1000
-      if (!this.rafId) this.loop()
-      return true
-    } catch (e) {
-      console.error('[viz] failed to load plugin', id, e)
-      await this.unloadCurrent()
-      return false
+      mod = await this.dynamicImportPlugin(id)
+    } catch (e) { console.error('[viz] failed to import plugin', id, e); return }
+    const plugin: VisualizationPlugin = mod.default || mod[id] || mod.plugin || mod
+    this.plugin = plugin
+    this.currentPluginId = id
+    await plugin.initialize({
+      container: this.container,
+      renderer: this.renderer,
+      scene: this.scene,
+      camera: this.camera,
+      analyser: this.analyser,
+      three: THREE
+    })
+    console.info('[viz] loaded plugin', id)
+  }
+
+  // External energy provider (e.g., beat engine) used when analyser has no real audio data.
+  setEnergyProvider(fn: (() => { low: number; mid: number; high: number; isBeat: boolean; bpm?: number }) | null) {
+    this.energyProvider = fn
+  }
+
+  private async dynamicImportPlugin(id: string) {
+    switch (id) {
+      case 'musical-colors': return await import('./plugins/musical-colors')
+      case 'wave-tunnel': return await import('./plugins/wave-tunnel')
+      case 'particle-burst': return await import('./plugins/particle-burst')
+      default: throw new Error('Unknown plugin ' + id)
     }
   }
 
-  private async unloadCurrent() {
-    if (this.current) {
-      try { this.current.instance.shutdown() } catch {}
-      // Remove canvas if present
-      if (this.current.graphics.kind === 'three') {
-        const g = this.current.graphics
-        g.renderer.dispose()
-        g.canvas.parentElement?.removeChild(g.canvas)
-      } else if (this.current.graphics.kind === 'canvas2d') {
-        this.current.graphics.canvas.parentElement?.removeChild(this.current.graphics.canvas)
-      }
+  start() {
+    if (this.animationHandle != null) return
+    console.info('[viz] manager start')
+    this.lastTime = performance.now() / 1000
+    const loop = () => {
+      this.animationHandle = requestAnimationFrame(loop)
+      this.tick()
     }
-    this.current = null
-    this.currentId = null
+    this.animationHandle = requestAnimationFrame(loop)
   }
 
-  private loop = () => {
-    this.rafId = requestAnimationFrame(this.loop)
-    if (!this.current) return
-    const now = performance.now()/1000
+  stop() {
+    if (this.animationHandle != null) {
+      cancelAnimationFrame(this.animationHandle)
+      this.animationHandle = null
+    }
+  }
+
+  private tick() {
+    if (!this.plugin || !this.analyser || !this.renderer || !this.scene || !this.camera || !this.fftData || !this.waveData) return
+    const now = performance.now() / 1000
     let dt = now - this.lastTime
     this.lastTime = now
-    dt = Math.min(dt, 0.25)
-
-    // Low power throttling
-    if (this.options.lowPowerMode) {
-      const target = this.options.targetFps || 30
-      const skip = (this.frameCounter++ % Math.max(1, Math.round(60/target))) !== 0
-      if (skip) return
+    if (dt > 0.25) dt = 0.25
+    // Pull audio data
+    // Cast due to TypeScript lib mismatch between DOM lib versions in this environment
+    this.analyser.getByteFrequencyData(this.fftData as any)
+    this.analyser.getByteTimeDomainData(this.waveData as any)
+    // If analyser not connected (all near silence) synthesize spectrum using external energy provider
+    if (this.energyProvider) {
+      let sum = 0
+      for (let i=0;i<this.fftData.length;i++) sum += this.fftData[i]
+      const avg = sum / this.fftData.length
+      if (avg < 1) { // treat as silent/uninitialized
+        const e = this.energyProvider()
+        const L = e.low, M = e.mid, H = e.high
+        const n = this.fftData.length
+        const lEnd = (n * 0.18) | 0
+        const mEnd = (n * 0.62) | 0
+        for (let i=0;i<n;i++) {
+          let base: number
+            if (i < lEnd) base = L
+            else if (i < mEnd) base = M
+            else base = H
+          // Add mild shaping + noise so bars vary
+          const shape = Math.sin((i / n) * Math.PI) * 0.4 + 0.6
+          const noise = (Math.random()*0.15 - 0.05)
+          this.fftData[i] = Math.max(0, Math.min(255, (base * shape + noise) * 255))
+        }
+        // Waveform: simple centered sine modulated by mid energy & beat pulse
+        for (let i=0;i<this.waveData.length;i++) {
+          const tNorm = i / this.waveData.length
+          const v = 0.5 + 0.5 * Math.sin(tNorm * Math.PI * 2 * (2 + M * 6)) * (0.3 + 0.7 * (M*0.7 + L*0.3))
+          this.waveData[i] = Math.max(0, Math.min(255, v * 255))
+        }
+      }
     }
-
-    if (this.pendingAudioFrame) {
-      // Merge timing info with provided audio frame
-      this.pendingAudioFrame.dt = dt
-      this.pendingAudioFrame.time = now
-      try { this.current.instance.renderFrame(this.pendingAudioFrame) } catch (e) { console.warn('[viz] plugin render error', e) }
+    // Simple beat heuristic: bass energy rising
+    const bassBins = Math.max(1, (this.fftData.length * 0.08) | 0)
+    let bassSum = 0
+    for (let i=0;i<bassBins;i++) bassSum += this.fftData[i]
+    const bassAvg = bassSum / bassBins / 255
+    let beat = bassAvg > 0.55 // simplistic default
+    if (this.energyProvider) {
+      // If we synthesized (avg low) we already encoded energy; we can adopt external beat flag
+      // Re-compute low avg quickly to detect silent input
+      let total = 0; for (let i=0;i<this.fftData.length;i++) total += this.fftData[i]
+      if (total / this.fftData.length < 1) {
+        beat = this.energyProvider().isBeat
+      }
     }
+    try {
+      this.plugin.renderFrame({ fft: this.fftData, waveform: this.waveData, dt, time: now, beat })
+    } catch (e) { console.warn('[viz] plugin frame error', e) }
+    // Render (plugin may have already drawn; ensure final pass)
+    this.renderer.render(this.scene, this.camera)
   }
 
-  private pendingAudioFrame: VisualizationAudioFrame | null = null
-
-  submitAudioFrame(frame: Omit<VisualizationAudioFrame, 'time' | 'dt'>) {
-    // The manager owns time & dt to keep consistent timeline
-    this.pendingAudioFrame = {
-      ...frame,
-      time: this.lastTime,
-      dt: 0
-    }
-  }
-
-  resize() {
-    if (!this.container || !this.current) return
-    const rect = this.container.getBoundingClientRect()
-    const dpr = Math.min(2, window.devicePixelRatio || 1)
-    if (this.current.graphics.kind === 'three') {
-      const g = this.current.graphics
-      g.camera.aspect = rect.width / Math.max(1, rect.height)
-      g.camera.updateProjectionMatrix()
-      g.renderer.setPixelRatio(dpr)
-      g.renderer.setSize(rect.width, rect.height, false)
-    } else {
-      const g = this.current.graphics
-      const cw = Math.floor(rect.width * dpr)
-      const ch = Math.floor(rect.height * dpr)
-      if (g.canvas.width !== cw) { g.canvas.width = cw; g.canvas.style.width = rect.width + 'px' }
-      if (g.canvas.height !== ch) { g.canvas.height = ch; g.canvas.style.height = rect.height + 'px' }
-    }
-    try { this.current.instance.resize?.(rect.width, rect.height, dpr) } catch {}
-  }
-
-  async destroy() {
-    if (this.rafId) { cancelAnimationFrame(this.rafId); this.rafId = null }
-    await this.unloadCurrent()
-    this.discovered = []
+  dispose() {
+    this.stop()
+    if (this.plugin) { try { this.plugin.dispose() } catch {} this.plugin = null }
+    if (this.resizeObserver && this.container) this.resizeObserver.unobserve(this.container)
+    window.removeEventListener('resize', this.onWindowResize)
+    if (this.renderer) { this.renderer.dispose(); this.renderer.domElement.remove() }
+    this.scene = null; this.camera = null; this.renderer = null; this.analyser = null
+    this.fftData = null; this.waveData = null
   }
 }
+
+export default VisualizationManager

@@ -7,6 +7,7 @@
 import { init as barsInit, render as barsRender, resize as barsResize, dispose as barsDispose } from './canvas2d/bars'
 import { createThreeContext, ThreeContext } from './three/engine'
 import { createParticlesScene, ParticlesScene } from './three/particles'
+import { createShaderPlaneScene, ShaderPlaneScene } from './three/shaderPlane'
 
 // ---------- Types (public) ----------
 export interface BeatFrame {
@@ -26,6 +27,7 @@ export interface VizSettings {
   particleCount: number
   colorMode: 'spotify' | 'neon' | 'pastel'
   lowPowerMode: boolean
+  variant?: 'particles' | 'shaderPlane' // which webgl scene implementation
 }
 
 export interface VisualizerController {
@@ -46,7 +48,8 @@ const DEFAULT_SETTINGS: VizSettings = {
   renderMode: 'canvas2d',
   particleCount: 5000,
   colorMode: 'spotify',
-  lowPowerMode: false
+  lowPowerMode: false,
+  variant: 'particles'
 }
 
 function loadSettings(initial?: Partial<VizSettings>): VizSettings {
@@ -57,7 +60,7 @@ function loadSettings(initial?: Partial<VizSettings>): VizSettings {
 function persistSettings(s: VizSettings) { try { localStorage.setItem(LS_KEY, JSON.stringify(s)) } catch {} }
 
 interface Canvas2DState { canvas: HTMLCanvasElement | null }
-interface WebGLState { three: ThreeContext | null; particles: ParticlesScene | null }
+interface WebGLState { three: ThreeContext | null; particles: ParticlesScene | null; shaderPlane: ShaderPlaneScene | null }
 
 export function createVisualizerController(initial?: Partial<VizSettings>): VisualizerController {
   let settings = loadSettings(initial)
@@ -70,7 +73,7 @@ export function createVisualizerController(initial?: Partial<VizSettings>): Visu
 
   // Mode states
   const c2d: Canvas2DState = { canvas: null }
-  const gl: WebGLState = { three: null, particles: null }
+  const gl: WebGLState = { three: null, particles: null, shaderPlane: null }
 
   // ---------- Setup & Mode Switching ----------
   function getContainer(): HTMLElement | null {
@@ -104,7 +107,11 @@ export function createVisualizerController(initial?: Partial<VizSettings>): Visu
     }
     gl.three = createThreeContext()
     container.appendChild(gl.three.canvas)
-    gl.particles = createParticlesScene(gl.three.scene, settings.particleCount)
+    if (settings.variant === 'shaderPlane') {
+      gl.shaderPlane = createShaderPlaneScene(gl.three.scene, gl.three.camera)
+    } else {
+      gl.particles = createParticlesScene(gl.three.scene, settings.particleCount)
+    }
     handleResize()
   }
 
@@ -132,6 +139,7 @@ export function createVisualizerController(initial?: Partial<VizSettings>): Visu
       barsResize(rect.width, rect.height, dpr, c2d.canvas)
     } else if (settings.renderMode === 'webgl' && gl.three) {
       gl.three.resize(rect.width, rect.height, dpr)
+      if (gl.shaderPlane) gl.shaderPlane.resize(rect.width, rect.height, dpr)
     }
   }
 
@@ -152,8 +160,9 @@ export function createVisualizerController(initial?: Partial<VizSettings>): Visu
   function drawCurrent(frame: BeatFrame, internalDt: number) {
     if (settings.renderMode === 'canvas2d' && c2d.canvas) {
       barsRender(frame, settings, internalDt)
-    } else if (settings.renderMode === 'webgl' && gl.three && gl.particles) {
-      gl.particles.update(frame, settings, internalDt)
+    } else if (settings.renderMode === 'webgl' && gl.three) {
+      if (gl.particles) gl.particles.update(frame, settings, internalDt)
+      if (gl.shaderPlane) gl.shaderPlane.update(frame, settings, internalDt)
       gl.three.render()
     }
   }
@@ -188,9 +197,16 @@ export function createVisualizerController(initial?: Partial<VizSettings>): Visu
     settings = { ...settings, ...next }
     persistSettings(settings)
     if (next.renderMode && next.renderMode !== prevMode) switchMode(next.renderMode)
-    if (settings.renderMode === 'webgl' && gl.particles && typeof next.particleCount === 'number' && next.particleCount !== gl.particles.count) {
-      // Recreate particle scene for new count
-      gl.particles.dispose(); gl.particles = createParticlesScene(gl.three!.scene, settings.particleCount)
+    if (settings.renderMode === 'webgl' && gl.three) {
+      const currentVariant: 'particles' | 'shaderPlane' = gl.shaderPlane ? 'shaderPlane' : 'particles'
+      if (next.variant && next.variant !== currentVariant) {
+        if (gl.particles) { gl.particles.dispose(); gl.particles = null }
+        if (gl.shaderPlane) { gl.shaderPlane.dispose(); gl.shaderPlane = null }
+        if (settings.variant === 'shaderPlane') gl.shaderPlane = createShaderPlaneScene(gl.three.scene, gl.three.camera)
+        else gl.particles = createParticlesScene(gl.three.scene, settings.particleCount)
+      } else if (gl.particles && typeof next.particleCount === 'number' && next.particleCount !== gl.particles.count) {
+        gl.particles.dispose(); gl.particles = createParticlesScene(gl.three.scene, settings.particleCount)
+      }
     }
   }
 
@@ -213,6 +229,7 @@ export function createVisualizerController(initial?: Partial<VizSettings>): Visu
   function disposeCanvas2D() { if (c2d.canvas) { barsDispose(); c2d.canvas.remove(); c2d.canvas = null } }
   function disposeWebGL() {
     if (gl.particles) { gl.particles.dispose(); gl.particles = null }
+    if (gl.shaderPlane) { gl.shaderPlane.dispose(); gl.shaderPlane = null }
     if (gl.three) { gl.three.dispose(); gl.three = null }
   }
 

@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { devtools } from 'zustand/middleware'
 import { initiateAuth, logout as authLogout } from '@/lib/spotifyAuth'
 import { disconnectPlayer } from '@/lib/useSpotifyPlayer'
 import { getAccessToken } from '@/lib/spotifyAuth'
@@ -83,7 +82,8 @@ setVolume: (v: number) => void
 }
 
 
-export const usePlayerStore = create<PlayerState>()(devtools((set, get) => ({
+// Simplified (devtools middleware removed for Zustand v5 compatibility)
+export const usePlayerStore = create<PlayerState>((set, get) => ({
 isAuthed: false,
 accessToken: null,
 refreshToken: null,
@@ -284,4 +284,4 @@ setVolume: (v) => { set({ volume: v }); try { localStorage.setItem('volume', JSO
 		}
 		return { progressMs: next, lastProgressUpdateAt: now }
 	})
-})))
+}))
