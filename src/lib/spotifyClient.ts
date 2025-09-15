@@ -76,8 +76,28 @@ export const SpotifyClient = {
   pause: () => coreFetch<void>('/me/player/pause', { method: 'PUT' }),
   seek: (ms: number) => coreFetch<void>(`/me/player/seek?position_ms=${ms}`, { method: 'PUT' }),
   setVolume: (v: number) => coreFetch<void>(`/me/player/volume?volume_percent=${Math.round(v*100)}`, { method: 'PUT' }),
+  // legacy generic transfer (kept but prefer dedicated below)
   transferPlayback: (deviceId: string, play=false) => coreFetch<void>('/me/player', { method: 'PUT', body: { device_ids: [deviceId], play } }),
   queue: () => coreFetch<any>('/me/player/queue'),
 }
 
 export function isClientError(e: any): e is ClientError { return e && typeof e === 'object' && 'kind' in e }
+
+// New explicit helpers per spec
+export async function transferPlayback({ deviceId, play = true }: { deviceId: string; play?: boolean }) {
+  const token = await getAccessToken(); if (!token) throw { kind: 'Auth', message: 'No token' } as ClientError
+  const res = await fetch('https://api.spotify.com/v1/me/player', {
+    method: 'PUT',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ device_ids: [deviceId], play })
+  })
+  if (res.status === 204 || res.status === 202) return { ok: true as const, status: res.status }
+  if (res.status === 403) throw { kind: 'Unknown', message: 'Spotify Premium required.', status: res.status }
+  if (res.status === 404) throw { kind: 'Unknown', message: 'No active device found.', status: res.status }
+  throw { kind: 'Unknown', message: `Transfer failed ${res.status}`, status: res.status, text: await res.text().catch(()=> '') }
+}
+
+export async function listDevices() {
+  const d = await SpotifyClient.devices().catch(()=> null)
+  return d?.devices || []
+}

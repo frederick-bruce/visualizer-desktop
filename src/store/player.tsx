@@ -9,7 +9,10 @@ interface PlayerState {
 isAuthed: boolean
 accessToken: string | null
 refreshToken: string | null
-deviceId: string | null
+deviceId: string | null // legacy/current selected device id (may be sdk device)
+sdkDeviceId?: string | null
+activeDeviceId?: string | null
+lastTransferStatus?: number | null
 isPlaying: boolean
 	volume: number
 	bufferedMs?: number
@@ -28,6 +31,10 @@ visualizer: 'bars' | 'wave' | 'particles'
 		colorVariance: number // 0..1 (future use)
 		trail: number // 0..1 controls persistence
 		blur: number // 0..1 (future)
+		beatSensitivity?: number // 0.0 - 2.0
+		releaseMs?: number // 100 - 400
+		motionScale?: number // 0 - 2
+		tempoMultiplier?: number // 0.5,1,2
 	}
 	presets: { id: string; name: string; visualizer: PlayerState['visualizer']; settings: PlayerState['vizSettings'] }[]
 	// user profile and library
@@ -57,6 +64,9 @@ setAuthed: (b: boolean) => void
 login: () => void
 logout: () => void
 setDeviceId: (id: string | null) => void
+setSdkReady: (id: string) => void
+setActiveDevice: (id: string | null) => void
+refreshDevices: () => Promise<void>
 setIsPlaying: (b: boolean) => void
 setVolume: (v: number) => void
 	// Unified controls
@@ -68,6 +78,8 @@ setVolume: (v: number) => void
 	seek: (ms: number) => Promise<void>
 	setPlayerVolume: (v: number) => Promise<void>
 	queue: (uri: string) => Promise<void>
+	setFromSdk: (s: { isPlaying: boolean; progressMs: number; durationMs: number }) => void
+	tick: (now: number) => void
 }
 
 
@@ -76,6 +88,9 @@ isAuthed: false,
 accessToken: null,
 refreshToken: null,
 deviceId: null,
+sdkDeviceId: null,
+activeDeviceId: null,
+lastTransferStatus: null,
 isPlaying: false,
 volume: (() => { try { const v = localStorage.getItem('volume'); if (v!=null) return JSON.parse(v) } catch {} return 0.6 })(),
 	prevVolume: 0.6,
@@ -83,11 +98,12 @@ volume: (() => { try { const v = localStorage.getItem('volume'); if (v!=null) re
 	unmute: () => set(s => ({ volume: s.prevVolume ?? 0.6 })),
 visualizer: 'bars',
 renderMode: 'raf',
-vizSettings: (() => {
-	if (typeof localStorage === 'undefined') return { sensitivity: 1, colorVariance: 0.3, trail: 0.5, blur: 0.0 }
-	try { const raw = localStorage.getItem('vizSettings'); if (raw) return JSON.parse(raw) } catch {}
-	return { sensitivity: 1, colorVariance: 0.3, trail: 0.5, blur: 0.0 }
-})(),
+	vizSettings: (() => {
+		const base = { sensitivity: 1, colorVariance: 0.3, trail: 0.5, blur: 0.0, beatSensitivity: 1, releaseMs: 250, motionScale: 1, tempoMultiplier: 1 }
+		if (typeof localStorage === 'undefined') return base
+		try { const raw = localStorage.getItem('vizSettings'); if (raw) return { ...base, ...JSON.parse(raw) } } catch {}
+		return base
+	})(),
 presets: (() => {
 	if (typeof localStorage === 'undefined') return []
 	try { const raw = localStorage.getItem('vizPresets'); if (raw) return JSON.parse(raw) } catch {}
@@ -170,6 +186,25 @@ setAuthError: (s) => set({ authError: s }),
 login: async () => { try { await initiateAuth(); set({ authError: null }) } catch (err: any) { set({ authError: String(err?.message || err) }); } },
 logout: async () => { await authLogout(); disconnectPlayer(); set({ isAuthed: false, accessToken: null, refreshToken: null, deviceId: null, isPlaying: false, profile: null, playlists: [] }); },
 setDeviceId: (id) => set({ deviceId: id }),
+setSdkReady: (id) => set({ sdkDeviceId: id, deviceId: id }),
+setActiveDevice: (id) => set({ activeDeviceId: id }),
+refreshDevices: async () => {
+	try {
+		const token = await getAccessToken(); if (!token) return
+		const r = await fetch('https://api.spotify.com/v1/me/player/devices', { headers: { Authorization: `Bearer ${token}` } })
+		if (!r.ok) return
+		const j = await r.json()
+		const list = j.devices || []
+		set({ devices: list })
+		const sdkId = get().sdkDeviceId
+		const active = list.find((d: any) => d.is_active)
+		set({ activeDeviceId: active?.id || null })
+		// If SDK is active but activeDeviceId not flagged yet
+		if (!active && sdkId) {
+			// We'll consider ourselves active if player.getCurrentState() not null (handled elsewhere)
+		}
+	} catch (e) { /* swallow */ }
+},
 setIsPlaying: (b) => set({ isPlaying: b }),
 setVolume: (v) => { set({ volume: v }); try { localStorage.setItem('volume', JSON.stringify(v)) } catch {} }
 	,
@@ -226,5 +261,27 @@ setVolume: (v) => { set({ volume: v }); try { localStorage.setItem('volume', JSO
 	},
 	queue: async (uri: string) => {
 		const token = await getAccessToken(); try { await fetch(`https://api.spotify.com/v1/me/player/queue?uri=${encodeURIComponent(uri)}`, { method: 'POST', headers: { 'Authorization': `Bearer ${token}` } }) } catch(e){ console.warn('queue error', e) }
-	}
+	},
+	setFromSdk: ({ isPlaying, progressMs, durationMs }) => set(s => {
+		const now = performance.now()
+		if (typeof s.progressMs === 'number') {
+			const drift = Math.abs(progressMs - s.progressMs)
+			if (drift < 150) {
+				return { isPlaying, durationMs, lastProgressUpdateAt: now }
+			}
+		}
+		return { isPlaying, progressMs, durationMs, lastProgressUpdateAt: now }
+	}),
+	tick: (now) => set(s => {
+		if (!s.isPlaying || s.durationMs == null || s.durationMs <= 0) return {}
+		if (typeof s.progressMs !== 'number' || typeof s.lastProgressUpdateAt !== 'number') return {}
+		let delta = now - s.lastProgressUpdateAt
+		if (delta < 0) delta = 0
+		let next = s.progressMs + delta
+		if (next >= s.durationMs) {
+			next = s.durationMs
+			return { progressMs: next, isPlaying: false, lastProgressUpdateAt: now }
+		}
+		return { progressMs: next, lastProgressUpdateAt: now }
+	})
 })))

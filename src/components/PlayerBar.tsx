@@ -1,9 +1,10 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 import { usePlayerStore } from '@/store/player'
 import { clamp, formatTime } from '@/lib/time'
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ListMusic, Laptop2 } from 'lucide-react'
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ListMusic, Laptop2, Check } from 'lucide-react'
 import Tooltip from '@/components/ui/Tooltip'
+import { transferPlayback } from '@/lib/spotifyClient'
 
 // Minimal device API helpers (could be moved to typed client later)
 async function fetchDevices(token: string) {
@@ -12,17 +13,15 @@ async function fetchDevices(token: string) {
 	return r.json()
 }
 
-async function transferTo(token: string, id: string) {
-	await fetch('https://api.spotify.com/v1/me/player', { method: 'PUT', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type':'application/json' }, body: JSON.stringify({ device_ids:[id], play:false }) })
-}
+// legacy helper removed; using transferPlayback
 
 export default function PlayerBar() {
 	useSpotifyPlayer()
 	const store = usePlayerStore()
 	const { isAuthed, isPlaying, volume, setVolume, mute, unmute, login, authError, play, pause, next, prev, seek, deviceId } = store as any
-	const { progressMs, durationMs, bufferedMs, lastProgressUpdateAt } = store as any
+	const { progressMs, durationMs, bufferedMs, setFromSdk } = store as any
 
-	// Optimistic / live progress state
+	// Optimistic scrubbing state (local only while dragging / after a key seek until we reconcile)
 	const [optimisticPos, setOptimisticPos] = useState<number | null>(null)
 	const [dragging, setDragging] = useState(false)
 	const trackBarRef = useRef<HTMLDivElement | null>(null)
@@ -32,42 +31,22 @@ export default function PlayerBar() {
 	const [devices, setDevices] = useState<any[]>([])
 	const [loadingDevices, setLoadingDevices] = useState(false)
 	const [deviceError, setDeviceError] = useState<string | null>(null)
-	const rafRef = useRef<number | null>(null)
+	const [lastTransferredId, setLastTransferredId] = useState<string | null>(null)
+	// Current displayed position: prefer optimistic while dragging, else store progressMs
+	const liveProgress = optimisticPos != null ? optimisticPos : (progressMs ?? 0)
 
-	// Derived progress with RAF smoothing
-	const getBaseProgress = () => {
-		if (optimisticPos != null) return optimisticPos
-		if (!isPlaying) return progressMs || 0
-		if (progressMs == null) return 0
-		if (!lastProgressUpdateAt) return progressMs
-		const elapsed = performance.now() - lastProgressUpdateAt
-		return Math.min(durationMs ?? progressMs, progressMs + elapsed)
-	}
-
-	const [renderProgress, setRenderProgress] = useState(getBaseProgress())
-
-	const tick = useCallback(() => {
-		setRenderProgress(getBaseProgress())
-		if (isPlaying && !dragging) rafRef.current = requestAnimationFrame(tick)
-	}, [isPlaying, dragging, progressMs, optimisticPos, lastProgressUpdateAt, durationMs])
-
-	useEffect(() => {
-		if (rafRef.current) cancelAnimationFrame(rafRef.current)
-		if (isPlaying && !dragging) rafRef.current = requestAnimationFrame(tick)
-		return () => { if (rafRef.current) cancelAnimationFrame(rafRef.current) }
-	}, [isPlaying, dragging, tick])
-
-	// Reconcile optimistic position when real progress updates (allow small drift)
+	// When store progress catches up after a seek we clear optimistic state
 	useEffect(() => {
 		if (optimisticPos == null) return
-		const base = progressMs
-		if (base == null) return
-		const drift = Math.abs(base - optimisticPos)
-		if (drift < 150) { setOptimisticPos(null) } else { setOptimisticPos(null); setRenderProgress(base) }
+		if (progressMs == null) return
+		const drift = Math.abs(progressMs - optimisticPos)
+		if (drift < 150) {
+			setOptimisticPos(null)
+		}
 	}, [progressMs, optimisticPos])
 
 	// Scrub logic
-	const pos = Math.min(renderProgress, durationMs ?? renderProgress)
+	const pos = Math.min(liveProgress, durationMs ?? liveProgress)
 	const dur = durationMs ?? 0
 	const buffered = Math.min(bufferedMs ?? 0, dur || Infinity)
 	const pct = dur ? pos / dur : 0
@@ -80,7 +59,6 @@ export default function PlayerBar() {
 		const ratio = rect.width ? x / rect.width : 0
 		const newMs = ratio * dur
 		setOptimisticPos(newMs)
-		setRenderProgress(newMs)
 	}
 
 	const onPointerDown = (e: React.PointerEvent) => {
@@ -94,8 +72,12 @@ export default function PlayerBar() {
 		if (!dragging) return
 		setDragging(false)
 		if (optimisticPos != null) {
-			const target = optimisticPos
-			try { await seek(Math.floor(target)); } catch { /* swallow */ }
+			const target = clamp(optimisticPos, 0, durationMs || optimisticPos)
+			try {
+				await seek(Math.floor(target))
+				// Baseline the store so global tick continues smoothly
+				if (durationMs != null) setFromSdk({ isPlaying, progressMs: target, durationMs })
+			} catch { /* ignore */ }
 		}
 	}
 
@@ -123,14 +105,13 @@ export default function PlayerBar() {
 		else if (e.key === 'ArrowRight') delta = 5000
 		else if (e.key.toLowerCase() === 'j') delta = -10000
 		else if (e.key.toLowerCase() === 'l') delta = 10000
-		else if (e.key === 'Home') { e.preventDefault(); setOptimisticPos(0); setRenderProgress(0); seek(0); return }
-		else if (e.key === 'End') { e.preventDefault(); setOptimisticPos(dur); setRenderProgress(dur); seek(dur); return }
+		else if (e.key === 'Home') { e.preventDefault(); setOptimisticPos(0); seek(0); setFromSdk({ isPlaying, progressMs: 0, durationMs: dur }); return }
+		else if (e.key === 'End') { e.preventDefault(); setOptimisticPos(dur); seek(dur); setFromSdk({ isPlaying, progressMs: dur, durationMs: dur }); return }
 		if (delta) {
 			e.preventDefault()
 			const target = clamp(pos + delta, 0, dur)
 			setOptimisticPos(target)
-			setRenderProgress(target)
-			seek(target).catch(()=>{})
+			seek(target).then(() => { setFromSdk({ isPlaying, progressMs: target, durationMs: dur }) }).catch(()=>{})
 		}
 	}
 
@@ -165,7 +146,10 @@ export default function PlayerBar() {
 
 	const disabled = !isAuthed
 
-		const noDevice = isAuthed && !deviceId
+	// Consider active if activeDeviceId or sdkDeviceId matches deviceId
+	const { sdkDeviceId, activeDeviceId } = store as any
+	const hasActiveDevice = !!(activeDeviceId && sdkDeviceId && activeDeviceId === sdkDeviceId)
+	const noDevice = isAuthed && !hasActiveDevice
 
 	const transportBtn = (icon: React.ReactElement, label: string, onClick: ()=>void, props: any={}) => (
 		<Tooltip label={label}>
@@ -276,9 +260,11 @@ export default function PlayerBar() {
 								{loadingDevices && <div className="animate-pulse text-white/60 py-4 text-center">Loading…</div>}
 								{!loadingDevices && !devices.length && <div className="text-white/50 py-1 leading-relaxed">No active devices.<br/><button onClick={loadDevices} className="mt-2 px-2 py-1 rounded bg-white/10 hover:bg-white/15">Refresh</button></div>}
 								{!loadingDevices && devices.map(d => (
-									<button key={d.id} onClick={async () => { const token = localStorage.getItem('access_token'); if (!token) return; try { await transferTo(token, d.id); loadDevices(); } catch { setDeviceError('Transfer failed'); } }}
+									<button key={d.id} onClick={async () => {
+										try { setDeviceError(null); const r:any = await transferPlayback({ deviceId: d.id, play: false }); setLastTransferredId(d.id); loadDevices(); } catch { setDeviceError('Transfer failed'); }
+									}}
 										className={`flex items-center justify-between px-2 py-1.5 rounded-md text-left hover:bg-white/10 ${d.is_active ? 'bg-[var(--accent,#1DB954)]/25 text-[var(--accent,#1DB954)]' : 'text-white/70'}`}> 
-										<span className="truncate max-w-[140px]">{d.name || 'Unnamed'}</span>
+										<span className="truncate max-w-[140px] flex items-center gap-1">{d.name || 'Unnamed'} {lastTransferredId===d.id && !d.is_active && <Check size={12} className="text-emerald-400"/>}</span>
 										<span className="text-[10px] opacity-70">{d.type}</span>
 									</button>
 								))}
