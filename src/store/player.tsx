@@ -35,6 +35,8 @@ visualizer: 'bars' | 'wave' | 'particles'
 		motionScale?: number // 0 - 2
 		tempoMultiplier?: number // 0.5,1,2
 	}
+	inputSource: 'Loopback' | 'File'
+	setInputSource: (s: 'Loopback' | 'File') => void
 	presets: { id: string; name: string; visualizer: PlayerState['visualizer']; settings: PlayerState['vizSettings'] }[]
 	// user profile and library
 	profile: { displayName?: string; avatarUrl?: string } | null
@@ -104,6 +106,7 @@ renderMode: 'raf',
 		try { const raw = localStorage.getItem('vizSettings'); if (raw) return { ...base, ...JSON.parse(raw) } } catch {}
 		return base
 	})(),
+	inputSource: (() => { try { const v = localStorage.getItem('inputSource'); if (v === 'File' || v === 'Loopback') return v; } catch {} return 'Loopback' })(),
 presets: (() => {
 	if (typeof localStorage === 'undefined') return []
 	try { const raw = localStorage.getItem('vizPresets'); if (raw) return JSON.parse(raw) } catch {}
@@ -156,6 +159,7 @@ setVizSettings: (p) => set(s => {
 	try { localStorage.setItem('vizSettings', JSON.stringify(next)) } catch {}
 	return { vizSettings: next }
 }),
+setInputSource: (s) => { set({ inputSource: s }); try { localStorage.setItem('inputSource', s) } catch {} },
 createPreset: (name) => set(s => {
 	const id = name.toLowerCase().replace(/[^a-z0-9]+/g,'-') + '-' + Math.random().toString(36).slice(2,6)
 	const preset = { id, name, visualizer: s.visualizer, settings: s.vizSettings }
