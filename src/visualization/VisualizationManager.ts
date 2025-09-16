@@ -1,4 +1,5 @@
 import * as THREE from 'three'
+import barsPlugin from '@/visualization/plugins/bars'
 import { VisualizationPlugin } from './plugins/types'
 import type { FeatureBus, FeatureSnapshot } from '@/audio/FeatureBus'
 
@@ -25,6 +26,7 @@ export class VisualizationManager {
   private fbBeatProgress = 0
   private fbBeatDuration = 0.5 // default 120 BPM
   private fbJustBeat = false
+  // Debug elements removed for production
 
   get activePluginId() { return this.currentPluginId }
 
@@ -36,7 +38,8 @@ export class VisualizationManager {
     // Core three setup
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true })
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio || 1))
-    this.renderer.setClearColor(0x000000, 0)
+  // Transparent clear (canvas can blend with page theme)
+  this.renderer.setClearColor(0x000000, 0)
     this.scene = new THREE.Scene()
     this.camera = new THREE.PerspectiveCamera(60, 1, 0.1, 100)
     this.camera.position.set(0,0,5)
@@ -45,6 +48,8 @@ export class VisualizationManager {
     container.appendChild(this.renderer.domElement)
     this.setupResize()
     this.resize()
+  ;(this as any)._debugFrames = 0
+  // (Debug logging removed)
     // Allocate audio buffers
     this.fftData = new Uint8Array(analyser.frequencyBinCount)
     this.waveData = new Uint8Array(analyser.fftSize)
@@ -65,9 +70,11 @@ export class VisualizationManager {
     if (!this.container || !this.renderer || !this.camera) return
     const w = this.container.clientWidth
     const h = this.container.clientHeight
+    if (w === 0 || h === 0) return
     this.camera.aspect = w / Math.max(1, h)
     this.camera.updateProjectionMatrix()
     this.renderer.setSize(w, h, false)
+    ;(this as any)._lastResize = { w, h, t: performance.now() }
   }
 
   async loadPlugin(id: string): Promise<void> {
@@ -98,7 +105,12 @@ export class VisualizationManager {
       analyser: this.analyser,
       three: THREE
     })
-    console.info('[viz] loaded plugin', id)
+    // Plugin loaded
+    try {
+      ;(window as any).__VIZ_PLUGIN = plugin
+      ;(window as any).__VIZ_SCENE = this.scene
+      console.info('[viz] plugin loaded', id, 'sceneChildren', this.scene.children.length)
+    } catch {}
   }
 
   // External energy provider (e.g., beat engine) used when analyser has no real audio data.
@@ -130,16 +142,16 @@ export class VisualizationManager {
 
   private async dynamicImportPlugin(id: string) {
     switch (id) {
-      case 'musical-colors': return await import('./plugins/musical-colors')
-      case 'wave-tunnel': return await import('./plugins/wave-tunnel')
-      case 'particle-burst': return await import('./plugins/particle-burst')
+      case 'bars': return { default: barsPlugin } as any
+  case 'musical-colors': return await import('./plugins/musical-colors')
+  case 'wave-tunnel': return await import('./plugins/wave-tunnel')
+  case 'particle-burst': return await import('./plugins/particle-burst')
       default: throw new Error('Unknown plugin ' + id)
     }
   }
 
   start() {
     if (this.animationHandle != null) return
-    console.info('[viz] manager start')
     this.lastTime = performance.now() / 1000
     const loop = () => {
       this.animationHandle = requestAnimationFrame(loop)
@@ -157,6 +169,7 @@ export class VisualizationManager {
 
   private tick() {
     if (!this.plugin || !this.analyser || !this.renderer || !this.scene || !this.camera || !this.fftData || !this.waveData) return
+    ;(this as any)._debugFrames++
     const now = performance.now() / 1000
     let dt = now - this.lastTime
     this.lastTime = now
@@ -276,11 +289,17 @@ export class VisualizationManager {
     } catch (e) { console.warn('[viz] plugin frame error', e) }
     // Render (plugin may have already drawn; ensure final pass)
     this.renderer.render(this.scene, this.camera)
+    // Removed debug overlay & frame reporting
+    if (((this as any)._debugFrames % 120) === 0) {
+      const childCount = this.scene.children.length
+  const barsGroup = this.scene.children.find(c => (c as any).type === 'Group' && ((c as any).children?.[0] as any)?.isMesh)
+      console.info('[viz] frame', (this as any)._debugFrames, { childCount, hasBarsGroup: !!barsGroup, firstChild: this.scene.children[2]?.type })
+    }
   }
 
   dispose() {
     this.stop()
-    // cleanup feature bus subscriptions
+  // Cleanup feature bus subscriptions
     try { this.unsubSnap?.() } catch {}
     try { this.unsubBeat?.() } catch {}
     if (this.plugin) { try { this.plugin.dispose() } catch {} this.plugin = null }

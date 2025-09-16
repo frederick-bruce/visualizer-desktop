@@ -14,7 +14,7 @@ export default function VisualLayout({ header, sidebar, main, footer }: Props) {
 
   return (
     <div
-      className="h-screen w-screen grid bg-neutral-950 text-neutral-100"
+      className="h-screen w-screen grid bg-neutral-950 text-neutral-100 min-h-0"
       style={{
         gridTemplateColumns: 'auto 1fr',
         gridTemplateRows: 'auto 1fr auto',
@@ -36,7 +36,7 @@ export default function VisualLayout({ header, sidebar, main, footer }: Props) {
       </aside>
 
       {/* Mobile drawer sidebar (overlay) */}
-      <div aria-hidden={!drawerOpen} className="md:hidden relative" style={{ gridArea: 'main' }}>
+  <div aria-hidden={!drawerOpen} className="md:hidden relative min-h-0" style={{ gridArea: 'main' }}>
         {/* Canvas/main sits underneath always */}
         <div className="relative h-full w-full overflow-hidden">{main}</div>
         {/* Overlay and panel only when open */}
@@ -62,7 +62,7 @@ export default function VisualLayout({ header, sidebar, main, footer }: Props) {
       </div>
 
       {/* Main for desktop */}
-      <main className="relative overflow-hidden hidden md:block" style={{ gridArea: 'main' }}>
+      <main className="relative overflow-hidden hidden md:block h-full min-h-0" style={{ gridArea: 'main' }}>
         {main}
       </main>
 

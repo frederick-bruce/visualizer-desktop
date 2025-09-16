@@ -8,10 +8,13 @@ export type AnalysisFrame = {
   onset?: boolean
   tempoBPM?: number | null
   bands?: number[]
+<<<<<<< HEAD
   beatPhase?: number | null
   bass?: number
   mid?: number
   treble?: number
+=======
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
 }
 
 export type SpotifySlice = {
@@ -31,7 +34,10 @@ type VisualizerState = {
   fps: number
   cpuLoad: number
   spotify: SpotifySlice
+<<<<<<< HEAD
   beatGateEnabled: boolean
+=======
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
   // actions
   setEngineState: (s: EngineState) => void
   setFrame: (f: AnalysisFrame) => void
@@ -41,7 +47,10 @@ type VisualizerState = {
   setParams: (p: Record<string, number>) => void
   setPerf: (fps: number, cpuLoad: number) => void
   setSpotify: (s: Partial<SpotifySlice>) => void
+<<<<<<< HEAD
   toggleBeatGate: () => void
+=======
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
 }
 
 export const useVisualizerState = create<VisualizerState>((set, get) => ({
@@ -54,7 +63,10 @@ export const useVisualizerState = create<VisualizerState>((set, get) => ({
   fps: 0,
   cpuLoad: 0,
   spotify: { isPlaying: false },
+<<<<<<< HEAD
   beatGateEnabled: true,
+=======
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
   setEngineState: (s) => set({ engineState: s }),
   setFrame: (f) => {
     const now = f.nowMs || performance.now()
@@ -66,5 +78,8 @@ export const useVisualizerState = create<VisualizerState>((set, get) => ({
   setParams: (p) => set(s => ({ params: { ...s.params, ...p } })),
   setPerf: (fps, cpuLoad) => set({ fps, cpuLoad }),
   setSpotify: (sli) => set(s => ({ spotify: { ...s.spotify, ...sli } })),
+<<<<<<< HEAD
   toggleBeatGate: () => set(s => ({ beatGateEnabled: !s.beatGateEnabled })),
+=======
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
 }))

@@ -137,8 +137,11 @@ export class PresetManager {
     this.currentId = id
     this.fadeStart = performance.now()
     this.fadeDur = Math.max(200, Math.min(2000, ms))
+<<<<<<< HEAD
     // Allow onEnter to run for the new preset (even if it ran previously)
     this.entered.clear()
+=======
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
     this.emit()
   }
 
@@ -182,10 +185,13 @@ export class PresetManager {
 
   render(targetCtx: CanvasRenderingContext2D, args: { width: number; height: number; time: number; analysis?: AnalysisLike }) {
     const { width: w, height: h, time } = args
+<<<<<<< HEAD
     if (!w || !h || w <= 0 || h <= 0) {
       // Layout not ready; skip this frame
       return
     }
+=======
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
     this.ensureBuffers(w, h)
     const a = (args.analysis || {})
     this.updateEnvelopes(a)
@@ -205,8 +211,12 @@ export class PresetManager {
     tctxA.clearRect(0,0,w,h); tctxB.clearRect(0,0,w,h)
     // draw current
     if (cur) {
+<<<<<<< HEAD
       // Ensure onEnter for current preset at fade start (even when prev exists)
       if (cur.def.onEnter && !this.entered.has(cur.def.id)) {
+=======
+      if (cur.def.onEnter && !this.entered.has(cur.def.id) && !prv) {
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
         cur.def.onEnter({ ctx: tctxA as any, width: w, height: h }, cur.values)
         this.entered.add(cur.def.id)
       }
@@ -224,6 +234,13 @@ export class PresetManager {
         // fade done
         this.prevId = null
         prv.def.onExit?.({ ctx: tctxB as any, width: w, height: h })
+<<<<<<< HEAD
+=======
+        if (cur?.def.onEnter) {
+          cur.def.onEnter({ ctx: tctxA as any, width: w, height: h }, cur.values)
+          this.entered.add(cur.def.id)
+        }
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
       }
     }
     // composite to target
@@ -288,6 +305,7 @@ const particles: VisualizationPreset = {
   },
   onFrame({ ctx, width, height }, a, api, p) {
     ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0,0,width,height)
+<<<<<<< HEAD
     const anyCtx = ctx as any; let parts = anyCtx.__particles as any[]
     if (!Array.isArray(parts)) {
       const count = Math.round(p.count)
@@ -296,6 +314,9 @@ const particles: VisualizationPreset = {
         x: rng()*width, y: rng()*height, vx: (rng()-0.5)*0.6, vy: (rng()-0.5)*0.6, life: rng()*1
       }))
     }
+=======
+    const anyCtx = ctx as any; const parts = anyCtx.__particles as any[]
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
     const boost = 0.5 + api.modulators.env('bass')
     parts.forEach(pt => {
       pt.x += pt.vx * boost; pt.y += pt.vy * boost

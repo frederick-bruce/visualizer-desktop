@@ -1,7 +1,7 @@
 import { Outlet, useLocation, useSearchParams } from 'react-router-dom'
 import { useEffect } from 'react'
 import { usePlayerStore } from '@/store/player'
-import VisualizerCanvas from '@/components/VisualizerCanvas'
+import VisualCanvas from '@/components/VisualCanvas'
 import SpotifyBridge from '@/components/SpotifyBridge'
 import Sidebar from '@/components/Sidebar'
 import NowPlayingBar from '@/components/NowPlayingBar'
@@ -12,6 +12,7 @@ import HeaderBar from '@/components/HeaderBar'
 import DevicePicker from '@/components/DevicePicker'
 import { useUiStore } from '@/store/ui'
 import SdkBootstrap from '@/components/SdkBootstrap'
+import { usePlayerTokenStore } from '@/state/playerStore'
 
 export default function App() {
   const location = useLocation()
@@ -96,6 +97,8 @@ export default function App() {
     />
   )
   const footer = (<NowPlayingBar />)
+  // Expose the SDK player to VisualCanvas once available
+  const player = usePlayerTokenStore(s => s.player)
 
   return (
     <div className="bg-neutral-950 text-neutral-100">
@@ -104,7 +107,7 @@ export default function App() {
       <VisualLayout
         header={header}
         sidebar={<Sidebar />}
-        main={<div className="relative h-full w-full"><VisualizerCanvas /></div>}
+        main={<div className="relative h-full w-full"><VisualCanvas player={player} /></div>}
         footer={footer}
       />
     </div>

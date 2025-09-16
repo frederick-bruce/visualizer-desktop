@@ -6,7 +6,10 @@ import { usePlayerStore } from '@/store/player'
 import * as V from '@/visualizers'
 import { presets } from '@/visuals/presets'
 import { useVisualizerState } from '@/state/visualizerStore'
+<<<<<<< HEAD
 import type { AnalysisFrame } from '@/state/visualizerStore'
+=======
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
 
 // Simple shared RAF clock so multiple components can subscribe without duplicating RAF cost.
 const subscribers: Set<(t: number, dt: number) => void> = new Set()
@@ -43,6 +46,7 @@ const [viz, setViz] = useState<V.Visualizer>(() => V.bars)
 const timelineRef = useRef<ReturnType<typeof buildTimeline> | null>(null)
 const timeRef = useRef(0)
 const inactive = useVisualizerState(s => s.inactive)
+<<<<<<< HEAD
 const beatGateEnabled = useVisualizerState(s => s.beatGateEnabled)
 // Hold latest analysis frame in a ref to avoid stale closures and unnecessary re-renders
 const frameRef = useRef<AnalysisFrame | undefined>(undefined)
@@ -55,6 +59,8 @@ useEffect(() => {
 	}) as unknown as () => void
 	return () => { try { unsub && unsub() } catch {} }
 }, [])
+=======
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
 
 
 // Swap visualizer preset
@@ -145,8 +151,13 @@ useEffect(() => {
 		const intensityBase = f?.rms ?? (tl ? intensityAt(tl, timeRef.current) : 0.6)
 		const sensitivity = usePlayerStore.getState().vizSettings?.sensitivity ?? 1
 		let intensity = intensityBase * sensitivity
+<<<<<<< HEAD
 		const bpm = f?.tempoBPM ?? (tl ? bpmAt(tl, timeRef.current) : undefined)
 	const bandAverages = (f?.bands && f.bands.length ? f.bands : computeBandAverages(timeRef.current, 32))
+=======
+		const bpm = tl ? bpmAt(tl, timeRef.current) : undefined
+	const bandAverages = computeBandAverages(timeRef.current, 8)
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
 
 		// Low power adjustments: reduce intensity variance slightly & skip every other frame for particles
 		if (lowPowerMode || isLowEnd) {
@@ -204,12 +215,17 @@ useEffect(() => {
 									height: c.clientHeight,
 									time: timeRef.current,
 									analysis: {
+<<<<<<< HEAD
 										rms: intensity,
 										tempoBPM: bpm,
 										onset: beatGateEnabled ? f?.onset : false,
 										bass: f?.bass,
 										mid: f?.mid,
 										treble: f?.treble,
+=======
+										rms: intensity, // use intensity as rms proxy
+										tempoBPM: bpm,
+>>>>>>> 26560ed (feat: Implement PresetPanel component for managing visual presets)
 										bands: bandAverages as any
 									}
 								})

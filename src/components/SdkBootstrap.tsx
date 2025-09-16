@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '@/store/player'
 import { getAccessToken } from '@/lib/spotifyAuth'
 import { transferPlayback } from '@/lib/spotifyClient'
+import { usePlayerTokenStore } from '@/state/playerStore'
 
 export default function SdkBootstrap() {
   const isAuthed = usePlayerStore(s => s.isAuthed)
@@ -42,6 +43,10 @@ export default function SdkBootstrap() {
             volume: store.volume ?? 0.6,
           })
           ;(window as any)._player = player
+          try { usePlayerTokenStore.getState().setPlayer(player) } catch {}
+        }
+        else {
+          try { usePlayerTokenStore.getState().setPlayer(player) } catch {}
         }
 
         // Attach listeners once
