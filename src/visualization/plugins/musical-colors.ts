@@ -72,39 +72,44 @@ export const musicalColors: VisualizationPlugin = (() => {
       }
       root.add(orbiters)
     },
-    renderFrame({ fft, dt, time, beat }) {
+    renderFrame({ fft, dt, time, beat, bass, mid, treb, intensity, beatPhase, barPhase, chorus }) {
       if (!shell || !shell.material || !orbiters || !orbitData) return
       const mat = shell.material
-      const bass = bandAverage(fft, 0, fft.length*0.1|0) / 255
-      const mid  = bandAverage(fft, fft.length*0.1|0, fft.length*0.4|0) / 255
-      const treb = bandAverage(fft, fft.length*0.4|0, fft.length) / 255
-      hueShift += dt * (0.05 + treb*0.4)
+      // Fallback if extended metrics undefined
+      const b = bass ?? (bandAverage(fft, 0, fft.length*0.1|0) / 255)
+  const mVal = mid  ?? (bandAverage(fft, fft.length*0.1|0, fft.length*0.4|0) / 255)
+  const t = treb ?? (bandAverage(fft, fft.length*0.4|0, fft.length) / 255)
+  const inten = intensity ?? (b*0.5 + mVal*0.3 + t*0.2)
+  hueShift += dt * (0.05 + t*0.4 + (chorus?0.2:0))
       const uniforms = mat.uniforms as any
       uniforms.u_time.value = time
-      uniforms.u_bass.value = bass
-      uniforms.u_mid.value = mid
-      uniforms.u_treb.value = treb
+      uniforms.u_bass.value = b
+  uniforms.u_mid.value = mVal
+      uniforms.u_treb.value = t
       uniforms.u_beat.value = beat ? 1 : Math.max(0, uniforms.u_beat.value * Math.exp(-dt/0.25))
       uniforms.u_hue.value = hueShift
       // Scale & slight rotation
-      shell.rotation.y += dt * (0.2 + mid*1.2)
-      shell.rotation.x += dt * (0.1 + treb*0.8)
-      const targetScale = 1.0 + bass*0.5 + (beat?0.25:0)
+  const barMod = barPhase !== undefined ? (0.4 + 0.6*Math.sin(barPhase*Math.PI*2)) : 1
+  shell.rotation.y += dt * (0.2 + mVal*1.2) * barMod
+      shell.rotation.x += dt * (0.1 + t*0.8)
+      const targetScale = 1.0 + b*0.5 + (beat?0.25:0) + (chorus?0.15:0)
       shell.scale.lerp(new THREE.Vector3(targetScale,targetScale,targetScale), 1 - Math.exp(-dt/0.25))
       // Update orbiters
-      const m = new THREE.Matrix4()
+  const mat4 = new THREE.Matrix4()
       for (let i=0;i<orbitData.length;i+=4) {
         let r = orbitData[i]
-        let ang = orbitData[i+1] + time * orbitData[i+2] * (0.5 + mid)
+  let ang = orbitData[i+1] + time * orbitData[i+2] * (0.5 + mVal)
         const tilt = orbitData[i+3]
-        if (beat) r += bass*0.3
+        if (beat) r += b*0.3
         const x = Math.cos(ang)*r
         const y = tilt * 0.6 + Math.sin(ang*2)*0.05
         const z = Math.sin(ang)*r
-        m.setPosition(x,y,z)
-        orbiters.setMatrixAt(i/4, m)
+  mat4.setPosition(x,y,z)
+  orbiters.setMatrixAt(i/4, mat4)
         // color shift by index & treble
-        tmpColor.setHSL((hueShift*0.2 + (i/4)/orbiters.count + treb*0.3) % 1, 0.6 + treb*0.3, 0.45 + bass*0.4)
+        const beatFlash = beat ? 0.15 : 0
+        const chorusLift = chorus ? 0.2 : 0
+        tmpColor.setHSL((hueShift*0.2 + (i/4)/orbiters.count + t*0.3) % 1, 0.6 + t*0.3 + chorusLift*0.2, 0.45 + b*0.4 + beatFlash + chorusLift)
         orbiters.setColorAt(i/4, tmpColor)
       }
       orbiters.instanceMatrix.needsUpdate = true

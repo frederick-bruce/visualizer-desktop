@@ -15,7 +15,7 @@ export class VisualizationManager {
   private waveData: Uint8Array | null = null
   private queuedPlugin: string | null = null
   private resizeObserver: ResizeObserver | null = null
-  private energyProvider: (() => { low: number; mid: number; high: number; isBeat: boolean; bpm?: number }) | null = null
+  private energyProvider: (() => { low: number; mid: number; high: number; isBeat: boolean; bpm?: number; beatPhase?: number; barPhase?: number; intensity?: number; chorus?: boolean }) | null = null
 
   get activePluginId() { return this.currentPluginId }
 
@@ -91,7 +91,7 @@ export class VisualizationManager {
   }
 
   // External energy provider (e.g., beat engine) used when analyser has no real audio data.
-  setEnergyProvider(fn: (() => { low: number; mid: number; high: number; isBeat: boolean; bpm?: number }) | null) {
+  setEnergyProvider(fn: (() => { low: number; mid: number; high: number; isBeat: boolean; bpm?: number; beatPhase?: number; barPhase?: number; intensity?: number; chorus?: boolean }) | null) {
     this.energyProvider = fn
   }
 
@@ -175,8 +175,33 @@ export class VisualizationManager {
         beat = this.energyProvider().isBeat
       }
     }
+    // Extended band averages
+    const midStart = (this.fftData.length * 0.1) | 0
+    const midEnd = (this.fftData.length * 0.55) | 0
+    let bassSum2 = 0, midSum2 = 0, trebSum2 = 0
+    for (let i=0;i<midStart;i++) bassSum2 += this.fftData[i]
+    for (let i=midStart;i<midEnd;i++) midSum2 += this.fftData[i]
+    for (let i=midEnd;i<this.fftData.length;i++) trebSum2 += this.fftData[i]
+    const bass = bassSum2 / Math.max(1, midStart) / 255
+    const mid = midSum2 / Math.max(1, (midEnd-midStart)) / 255
+    const treb = trebSum2 / Math.max(1, (this.fftData.length-midEnd)) / 255
+    // Intensity & chorus heuristic using dual EMAs of total magnitude
+    if (!(this as any)._intSlow) { (this as any)._intSlow = bass+mid+treb; (this as any)._intFast = bass+mid+treb }
+    const cur = bass+mid+treb
+    ;(this as any)._intFast += (cur - (this as any)._intFast) * (1 - Math.exp(-dt/0.08))
+    ;(this as any)._intSlow += (cur - (this as any)._intSlow) * (1 - Math.exp(-dt/0.6))
+    const intensity = (this as any)._intFast
+    const chorus = (this as any)._intFast > (this as any)._intSlow * 1.35 && (this as any)._intFast > 0.9 * (this as any)._intSlow + 0.05
+    // Basic beat phase estimation: we don't have precise beat timing here; approximate using bass envelope decay
+    if (!(this as any)._beatPhase) (this as any)._beatPhase = 0
+    if (beat) (this as any)._beatPhase = 0; else (this as any)._beatPhase = Math.min(1, (this as any)._beatPhase + dt * 2) // assume ~0.5s beat spacing fallback
+    const beatPhase = (this as any)._beatPhase
+    // Bar phase (approx 4 beats)
+    if (!(this as any)._barPhase) (this as any)._barPhase = 0
+    if (beat) (this as any)._barPhase = ((this as any)._barPhase + 1/4) % 1
+    const barPhase = (this as any)._barPhase
     try {
-      this.plugin.renderFrame({ fft: this.fftData, waveform: this.waveData, dt, time: now, beat })
+      this.plugin.renderFrame({ fft: this.fftData, waveform: this.waveData, dt, time: now, beat, bass, mid, treb, intensity, beatPhase, barPhase, bpm: undefined, chorus })
     } catch (e) { console.warn('[viz] plugin frame error', e) }
     // Render (plugin may have already drawn; ensure final pass)
     this.renderer.render(this.scene, this.camera)

@@ -28,9 +28,28 @@ async function authed<T>(path: string, init?: RequestInit): Promise<T> {
 
 	// If unauthorized, attempt to refresh token once and retry
 	if (res.status === 401) {
+		console.warn('[spotifyApi] 401 unauthorized, attempting token refresh')
 		token = await getAccessToken()
 		if (!token) throw new Error('No token after refresh')
 		res = await makeRequest(token)
+	}
+
+	// 403 can be: expired/invalid token not yet returning 401, insufficient scope, or regional restriction.
+	// Strategy: if 403 on first try, refresh token once & retry. If still 403, throw detailed error.
+	if (res.status === 403) {
+		const bodyText = await res.clone().text().catch(() => '')
+		console.warn('[spotifyApi] 403 forbidden initial response', { path, bodyText })
+		// naive check: if message mentions scope, attempt refresh once
+		const lower = bodyText.toLowerCase()
+		if (lower.includes('scope') || lower.includes('token')) {
+			const refreshed = await getAccessToken()
+			if (refreshed && refreshed !== token) {
+				res = await makeRequest(refreshed)
+			}
+		}
+		if (res.status === 403) {
+			throw new Error(`403 Forbidden (${path})${bodyText ? ' - ' + bodyText : ''}`)
+		}
 	}
 
 	if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)

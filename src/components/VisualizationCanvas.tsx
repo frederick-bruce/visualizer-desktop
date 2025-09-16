@@ -2,7 +2,8 @@ import React, { useEffect, useRef } from 'react'
 import VisualizationManager from '@/visualization/VisualizationManager'
 import { useVisualizerStore } from '@/stores/visualizerStore'
 import { getAnalyser } from '@/audio/getAnalyser'
-import { useBeatEngine } from '@/lib/useBeatEngine'
+import useFusedBeat from '@/hooks/useFusedBeat'
+import { useBeatStore } from '@/store/beat'
 import { usePlayerStore } from '@/store/player'
 
 // Optional debug overlay hook
@@ -40,7 +41,16 @@ export const VisualizationCanvas: React.FC<Props> = ({ debug }) => {
   const setStopped = useVisualizerStore(s => s.stop)
   const fps = useFpsOverlay(!!debug)
   const trackId = usePlayerStore(s => (s as any).track?.id)
-  const beatFrame = useBeatEngine(trackId)
+  // Initialize fused beat pipeline (combines analysis + real-time detector)
+  useFusedBeat(trackId)
+  // Individually select primitives to avoid creating a new object each render (prevents store snapshot churn)
+  const isBeat = useBeatStore(s => s.isBeat)
+  const beatIntensity = useBeatStore(s => s.beatIntensity)
+  const beatPhase = useBeatStore(s => s.beatPhase)
+  const barPhase = useBeatStore(s => s.barPhase)
+  const bass = useBeatStore(s => s.bass)
+  const mid = useBeatStore(s => s.mid)
+  const treb = useBeatStore(s => s.treb)
 
   useEffect(() => {
     let mounted = true
@@ -68,8 +78,17 @@ export const VisualizationCanvas: React.FC<Props> = ({ debug }) => {
   // Provide external energy fallback
   useEffect(() => {
     if (!managerRef.current) return
-    managerRef.current.setEnergyProvider(() => beatFrame ? { low: beatFrame.band.low, mid: beatFrame.band.mid, high: beatFrame.band.high, isBeat: beatFrame.onBeat, bpm: beatFrame.bpm } : { low:0, mid:0, high:0, isBeat:false })
-  }, [beatFrame])
+    managerRef.current.setEnergyProvider(() => ({
+      low: bass ?? 0,
+      mid: mid ?? 0,
+      high: treb ?? 0,
+      isBeat,
+      bpm: undefined,
+      beatPhase,
+      barPhase,
+      intensity: Math.min(1, (beatIntensity ?? 0) * 1.0)
+    }))
+  }, [bass, mid, treb, isBeat, beatPhase, barPhase, beatIntensity])
 
   return (
     <div className="relative w-full h-full min-h-0" ref={containerRef}>

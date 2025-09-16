@@ -24,6 +24,11 @@ interface CachedAnalysis {
 }
 
 const analysisCache = new Map<string, CachedAnalysis>()
+// Tracks that returned 403 (forbidden) so we avoid spamming requests. These endpoints sometimes 403 for
+// regional restrictions, unplayable/local tracks, or catalog gaps. We'll fallback to synthetic timing.
+const forbiddenAnalysis = new Set<string>()
+// Simple warning throttle
+let lastForbiddenWarn = 0
 
 // Helper to clamp
 function clamp(v: number, lo: number, hi: number) { return v < lo ? lo : v > hi ? hi : v }
@@ -105,38 +110,45 @@ export function useBeatEngine(trackId?: string | null) {
     let cancelled = false
     async function load() {
       const id = trackId as string
+      if (forbiddenAnalysis.has(id)) { analysisRef.current = null; return }
       if (analysisCache.has(id)) {
         analysisRef.current = analysisCache.get(id)!
-        // Reset indices/env for new track
-        envRef.current = 0
-        beatIdxRef.current = 0
-        barIdxRef.current = 0
-        segmentIdxRef.current = 0
-        sectionIdxRef.current = 0
+        envRef.current = 0; beatIdxRef.current = 0; barIdxRef.current = 0; segmentIdxRef.current = 0; sectionIdxRef.current = 0
         return
       }
       try {
-        const [analysisRaw, features] = await Promise.all([
-          Analysis.audioAnalysis(id),
-          Analysis.audioFeatures(id)
-        ])
-        const analysis: any = analysisRaw as any
+        // Fetch analysis first; if it 403s we skip features
+        let analysis: any | null = null
+        try {
+          analysis = await Analysis.audioAnalysis(id) as any
+        } catch (err: any) {
+          if (String(err?.message || '').includes('403')) {
+            forbiddenAnalysis.add(id)
+            const now = Date.now()
+            if (now - lastForbiddenWarn > 5000) {
+              console.warn('[BeatEngine] 403 for analysis', id, '- falling back to synthetic beat (will not retry for this track).')
+              lastForbiddenWarn = now
+            }
+            analysisRef.current = null
+            return
+          }
+          throw err
+        }
+        // Features may still succeed separately; failure here is non-fatal
+        let features: any = null
+        try { features = await Analysis.audioFeatures(id) as any } catch { /* ignore */ }
         if (cancelled) return
         const cached: CachedAnalysis = {
-          beats: analysis.beats || [],
-            bars: analysis.bars || [],
-            tatums: analysis.tatums || [],
-            sections: analysis.sections || [],
-            segments: analysis.segments || [],
-            features
+          beats: analysis?.beats || [],
+          bars: analysis?.bars || [],
+          tatums: analysis?.tatums || [],
+          sections: analysis?.sections || [],
+          segments: analysis?.segments || [],
+          features
         }
         analysisCache.set(id, cached)
         analysisRef.current = cached
-        envRef.current = 0
-        beatIdxRef.current = 0
-        barIdxRef.current = 0
-        segmentIdxRef.current = 0
-        sectionIdxRef.current = 0
+        envRef.current = 0; beatIdxRef.current = 0; barIdxRef.current = 0; segmentIdxRef.current = 0; sectionIdxRef.current = 0
       } catch (e) {
         console.warn('BeatEngine analysis fetch failed', e)
         analysisRef.current = null

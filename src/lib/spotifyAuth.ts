@@ -1,6 +1,8 @@
 // Simplified PKCE (redirect back to webview route /callback). No external Tauri plugins.
 const CLIENT_ID = String(import.meta.env.VITE_SPOTIFY_CLIENT_ID || '')
-const SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-email user-read-private playlist-read-private playlist-read-collaborative streaming app-remote-control'
+// Added user-read-recently-played (used by Me.recentlyPlayed) and user-library-read (future use / broader compatibility)
+// Including user-top-read for potential future personalization features.
+const SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing user-read-email user-read-private playlist-read-private playlist-read-collaborative streaming app-remote-control user-read-recently-played user-library-read user-top-read'
 const REDIRECT_URI = String(import.meta.env.VITE_REDIRECT_URI || 'http://localhost:5173/callback')
 
 function randomString(len = 64) {
