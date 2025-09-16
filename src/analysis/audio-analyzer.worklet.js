@@ -221,7 +221,8 @@ class AnalyzerProcessor extends AudioWorkletProcessor {
               bands: Array.from(this.bands),
               bass: this.bassEMA,
               mid: this.midEMA,
-              treble: this.trebEMA
+              treble: this.trebEMA,
+              nowMs: currentTime * 1000
             })
           }
         }

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import VisualizationCanvas from '@/components/VisualizationCanvas'
+import PresetPanel from '@/components/PresetPanel'
 import PluginPicker from '@/components/PluginPicker'
 import Sidebar from '@/components/Sidebar'
 import { useBeatStore } from '@/store/beat'
@@ -7,6 +8,8 @@ import { useVisualizerStore } from '@/stores/visualizerStore'
 import { usePlayerStore } from '@/store/player'
 import AudioAnalyzer from '@/analysis/AudioAnalyzer'
 import LoopbackBridge from '@/lib/loopback'
+import HUDPanel from '@/components/HUDPanel'
+import { useVisualizerState } from '@/state/visualizerStore'
 
 // Dashboard: dedicated full-screen visualization workspace
 export default function Dashboard() {
@@ -21,6 +24,7 @@ export default function Dashboard() {
   const isBeat = useBeatStore(s => s.isBeat)
   const beatIntensity = useBeatStore(s => s.beatIntensity)
   useLoopbackAnalyzer(inputSource === 'Loopback')
+  useSyncSpotifyToHud()
   // Scale pulse style (applied to inner viz wrapper)
   const scale = 1 + beatIntensity * 0.12
   return (
@@ -49,6 +53,8 @@ export default function Dashboard() {
         </div>
         <div className="relative flex-1 min-h-0" style={{ transition: 'transform 120ms cubic-bezier(.33,.7,.3,1)', transform: `scale(${scale})` }}>
           <VisualizationCanvas debug={false} />
+          <HUDPanel />
+          <PresetPanel />
           {!current && (
             <div className="absolute inset-0 flex items-center justify-center pointer-events-none text-sm text-white/60">
               No plugin selected
@@ -69,6 +75,9 @@ export default function Dashboard() {
 // Wire up loopback -> analyzer lifecycle when input source is Loopback
 function useLoopbackAnalyzer(active: boolean) {
   const started = useRef(false)
+  const setFrame = useVisualizerState(s => s.setFrame)
+  const setInactive = useVisualizerState(s => s.setInactive)
+  const setEngineState = useVisualizerState(s => s.setEngineState)
   useEffect(() => {
     if (!active) return
     let canceled = false
@@ -83,13 +92,36 @@ function useLoopbackAnalyzer(active: boolean) {
       await analyzer.connectFromNode(node)
       const unsub = analyzer.subscribe(f => {
         // light debug for smoke test
-        if (Math.random() < 0.02 && f) console.debug('[loopback analyzer]', 'rms', f.rms.toFixed(3), 'onset', f.onset ? 1 : 0)
+        if (f) setFrame({ nowMs: f.nowMs ?? performance.now(), rms: f.rms, onset: f.onset, tempoBPM: f.tempoBPM, bands: f.bands })
       })
       await bridge.start()
+      setEngineState('running')
+      // inactivity watchdog
+      let raf = 0
+      const check = () => {
+        const last = useVisualizerState.getState().lastFrameAt || 0
+        const inactive = performance.now() - last > 500
+        if (inactive !== useVisualizerState.getState().inactive) setInactive(inactive)
+        raf = requestAnimationFrame(check)
+      }
+      raf = requestAnimationFrame(check)
       if (canceled) { await bridge.stop(); analyzer.dispose(); return }
       ;(window as any)._analyzer = analyzer
       ;(window as any)._loopback = bridge
     })()
-    return () => { canceled = true; const lb = (window as any)._loopback as LoopbackBridge | undefined; lb?.stop(); const an = (window as any)._analyzer as AudioAnalyzer | undefined; an?.dispose(); }
+    return () => { canceled = true; const lb = (window as any)._loopback as LoopbackBridge | undefined; lb?.stop(); const an = (window as any)._analyzer as AudioAnalyzer | undefined; an?.dispose(); useVisualizerState.getState().setEngineState('idle'); useVisualizerState.getState().setInactive(true) }
   }, [active])
+}
+
+function useSyncSpotifyToHud() {
+  const name = usePlayerStore(s => s.track?.name)
+  const artists = usePlayerStore(s => s.track?.artists)
+  const albumArt = usePlayerStore(s => s.track?.albumArt)
+  const isPlaying = usePlayerStore(s => s.isPlaying)
+  const progressMs = usePlayerStore(s => s.progressMs)
+  const durationMs = usePlayerStore(s => s.durationMs)
+  const setSpotify = useVisualizerState(s => s.setSpotify)
+  React.useEffect(() => {
+    setSpotify({ track: { name, artists, albumArt }, isPlaying, positionMs: progressMs ?? undefined, durationMs: durationMs ?? undefined })
+  }, [name, artists, albumArt, isPlaying, progressMs, durationMs, setSpotify])
 }

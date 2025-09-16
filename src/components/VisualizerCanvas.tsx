@@ -3,6 +3,8 @@ import { usePlayerStore } from '@/store/player'
 import { Analysis } from '@/lib/spotifyApi'
 import { buildTimeline, intensityAt, bpmAt, computeBandAverages } from '@/lib/beatmap'
 import * as V from '@/visualizers'
+import { presets } from '@/visuals/presets'
+import { useVisualizerState } from '@/state/visualizerStore'
 
 // Simple shared RAF clock so multiple components can subscribe without duplicating RAF cost.
 const subscribers: Set<(t: number, dt: number) => void> = new Set()
@@ -32,6 +34,7 @@ const { visualizer, renderMode, setRenderMode, lowPowerMode, isLowEnd, styleMode
 const [viz, setViz] = useState<V.Visualizer>(() => V.bars)
 const timelineRef = useRef<ReturnType<typeof buildTimeline> | null>(null)
 const timeRef = useRef(0)
+const inactive = useVisualizerState(s => s.inactive)
 
 
 // Swap visualizer preset
@@ -116,7 +119,7 @@ useEffect(() => {
 		const sensitivity = usePlayerStore.getState().vizSettings?.sensitivity ?? 1
 		let intensity = intensityBase * sensitivity
 		const bpm = tl ? bpmAt(tl, timeRef.current) : undefined
-		const bandAverages = computeBandAverages(timeRef.current, 8)
+	const bandAverages = computeBandAverages(timeRef.current, 8)
 
 		// Low power adjustments: reduce intensity variance slightly & skip every other frame for particles
 		if (lowPowerMode || isLowEnd) {
@@ -164,9 +167,23 @@ useEffect(() => {
 				grad.addColorStop(1, 'rgba(0,0,0,1)')
 				ctx.fillStyle = grad
 				ctx.fillRect(0, oh - rh, ow, rh)
-			} else {
-				viz({ ctx, width: c.clientWidth, height: c.clientHeight, time: timeRef.current, intensity, bpm, bandAverages })
-			}
+						} else {
+								// New: render via PresetManager crossfade, providing a minimal AnalysisLike bridge
+								// Dim visuals when inactive
+								const beforeAlpha = (ctx as any).globalAlpha
+								if (inactive) { (ctx as any).save(); (ctx as any).globalAlpha = 0.25 }
+								presets.render(ctx, {
+									width: c.clientWidth,
+									height: c.clientHeight,
+									time: timeRef.current,
+									analysis: {
+										rms: intensity, // use intensity as rms proxy
+										tempoBPM: bpm,
+										bands: bandAverages as any
+									}
+								})
+								if (inactive) { (ctx as any).restore() }
+						}
 	}
 
 	let unsub: (() => void) | null = null
@@ -202,5 +219,12 @@ useEffect(() => {
 }, [setRenderMode])
 
 
-return <canvas ref={canvasRef} data-render-mode={renderMode} className="h-full w-full rounded-xl bg-black/60" />
+return <div className="h-full w-full relative">
+	<canvas ref={canvasRef} data-render-mode={renderMode} className="h-full w-full rounded-xl bg-black/60" />
+	{inactive && (
+		<div className="absolute inset-0 flex items-center justify-center text-white/70 text-sm pointer-events-none">
+			No audio input detected.
+		</div>
+	)}
+</div>
 }
