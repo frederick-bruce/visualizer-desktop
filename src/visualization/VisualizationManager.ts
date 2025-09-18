@@ -1,5 +1,6 @@
 import * as THREE from 'three'
 import { VisualizationPlugin } from './plugins/types'
+import type { FeatureBus, FeatureSnapshot } from '@/audio/FeatureBus'
 
 export class VisualizationManager {
   private container: HTMLElement | null = null
@@ -16,8 +17,18 @@ export class VisualizationManager {
   private queuedPlugin: string | null = null
   private resizeObserver: ResizeObserver | null = null
   private energyProvider: (() => { low: number; mid: number; high: number; isBeat: boolean; bpm?: number; beatPhase?: number; barPhase?: number; intensity?: number; chorus?: boolean }) | null = null
+  // FeatureBus integration
+  private featureBus: FeatureBus | null = null
+  private featureSnap: FeatureSnapshot | null = null
+  private unsubSnap: (() => void) | null = null
+  private unsubBeat: (() => void) | null = null
+  private fbBeatProgress = 0
+  private fbBeatDuration = 0.5 // default 120 BPM
+  private fbJustBeat = false
 
   get activePluginId() { return this.currentPluginId }
+
+  private _ema(prev: number, next: number, alpha: number) { return prev + alpha * (next - prev) }
 
   async initialize(container: HTMLElement, analyser: AnalyserNode): Promise<void> {
     this.container = container
@@ -95,6 +106,28 @@ export class VisualizationManager {
     this.energyProvider = fn
   }
 
+  // New: supply a FeatureBus; we'll plumb its snapshot data into the plugin frame
+  setFeatureBus(bus: FeatureBus | null) {
+    // cleanup previous
+    try { this.unsubSnap?.() } catch {}
+    try { this.unsubBeat?.() } catch {}
+    this.featureBus = bus
+    this.featureSnap = null
+    this.fbBeatProgress = 0
+    this.fbJustBeat = false
+    if (bus) {
+      this.unsubSnap = bus.onSnapshot((f) => {
+        this.featureSnap = f
+        // derive beat duration when bpm present
+        if (typeof f.bpm === 'number' && f.bpm > 0) this.fbBeatDuration = 60 / f.bpm
+      })
+      this.unsubBeat = bus.onBeat(() => {
+        this.fbJustBeat = true
+        this.fbBeatProgress = 0
+      })
+    }
+  }
+
   private async dynamicImportPlugin(id: string) {
     switch (id) {
       case 'musical-colors': return await import('./plugins/musical-colors')
@@ -161,12 +194,12 @@ export class VisualizationManager {
         }
       }
     }
-    // Simple beat heuristic: bass energy rising
+  // Defaults from analyser-only path
     const bassBins = Math.max(1, (this.fftData.length * 0.08) | 0)
     let bassSum = 0
     for (let i=0;i<bassBins;i++) bassSum += this.fftData[i]
     const bassAvg = bassSum / bassBins / 255
-    let beat = bassAvg > 0.55 // simplistic default
+  let beat = bassAvg > 0.55 // simplistic default
     if (this.energyProvider) {
       // If we synthesized (avg low) we already encoded energy; we can adopt external beat flag
       // Re-compute low avg quickly to detect silent input
@@ -175,16 +208,16 @@ export class VisualizationManager {
         beat = this.energyProvider().isBeat
       }
     }
-    // Extended band averages
+  // Extended band averages from FFT (fallback)
     const midStart = (this.fftData.length * 0.1) | 0
     const midEnd = (this.fftData.length * 0.55) | 0
     let bassSum2 = 0, midSum2 = 0, trebSum2 = 0
     for (let i=0;i<midStart;i++) bassSum2 += this.fftData[i]
     for (let i=midStart;i<midEnd;i++) midSum2 += this.fftData[i]
     for (let i=midEnd;i<this.fftData.length;i++) trebSum2 += this.fftData[i]
-    const bass = bassSum2 / Math.max(1, midStart) / 255
-    const mid = midSum2 / Math.max(1, (midEnd-midStart)) / 255
-    const treb = trebSum2 / Math.max(1, (this.fftData.length-midEnd)) / 255
+  let bass = bassSum2 / Math.max(1, midStart) / 255
+  let mid = midSum2 / Math.max(1, (midEnd-midStart)) / 255
+  let treb = trebSum2 / Math.max(1, (this.fftData.length-midEnd)) / 255
     // Intensity & chorus heuristic using dual EMAs of total magnitude
     if (!(this as any)._intSlow) { (this as any)._intSlow = bass+mid+treb; (this as any)._intFast = bass+mid+treb }
     const cur = bass+mid+treb
@@ -192,16 +225,44 @@ export class VisualizationManager {
     ;(this as any)._intSlow += (cur - (this as any)._intSlow) * (1 - Math.exp(-dt/0.6))
     const intensity = (this as any)._intFast
     const chorus = (this as any)._intFast > (this as any)._intSlow * 1.35 && (this as any)._intFast > 0.9 * (this as any)._intSlow + 0.05
-    // Basic beat phase estimation: we don't have precise beat timing here; approximate using bass envelope decay
+
+    // Integrate FeatureBus snapshot if available
+    let bpm: number | undefined = undefined
+    if (this.featureSnap) {
+      const f = this.featureSnap
+      // amplitude/intensity from RMS
+      const amp = Math.max(0, Math.min(1, f.rms))
+      ;(this as any)._intFast = amp
+  ;(this as any)._intSlow = this._ema((this as any)._intSlow || amp, amp, 1 - Math.exp(-dt/0.6))
+      // beat + progress
+      if (f.beatNow || this.fbJustBeat) { beat = true; this.fbJustBeat = false; this.fbBeatProgress = 0 }
+      // advance beat progress by bpm when known else by heuristic
+      const dur = (typeof f.bpm === 'number' && f.bpm > 0) ? (60 / f.bpm) : this.fbBeatDuration
+      this.fbBeatDuration = dur
+      this.fbBeatProgress = Math.min(1, this.fbBeatProgress + (dt / Math.max(0.001, dur)))
+      bpm = f.bpm ?? undefined
+      // derive bands from MFCC groupings (low indices ~low freq)
+      const mf = Array.isArray(f.mfcc) ? f.mfcc : []
+      const seg = (arr: number[], a: number, b: number) => arr.slice(a, b).reduce((s,v)=>s+Math.abs(v),0) / Math.max(1, (b-a))
+      const bVal = seg(mf, 0, Math.min(4, mf.length))
+      const mVal = seg(mf, 4, Math.min(9, mf.length))
+      const tVal = seg(mf, 9, Math.min(13, mf.length))
+      const norm = (x: number) => Math.max(0, Math.min(1, x / 50)) // rough normalization for MFCC magnitudes
+      bass = norm(bVal)
+      mid = norm(mVal)
+      treb = norm(tVal)
+    }
+
+    // Beat phase value exposed to plugins
     if (!(this as any)._beatPhase) (this as any)._beatPhase = 0
-    if (beat) (this as any)._beatPhase = 0; else (this as any)._beatPhase = Math.min(1, (this as any)._beatPhase + dt * 2) // assume ~0.5s beat spacing fallback
+    if (beat) (this as any)._beatPhase = 0; else (this as any)._beatPhase = Math.min(1, (this as any)._beatPhase + (dt / Math.max(0.001, this.fbBeatDuration)))
     const beatPhase = (this as any)._beatPhase
     // Bar phase (approx 4 beats)
     if (!(this as any)._barPhase) (this as any)._barPhase = 0
     if (beat) (this as any)._barPhase = ((this as any)._barPhase + 1/4) % 1
     const barPhase = (this as any)._barPhase
     try {
-      this.plugin.renderFrame({ fft: this.fftData, waveform: this.waveData, dt, time: now, beat, bass, mid, treb, intensity, beatPhase, barPhase, bpm: undefined, chorus })
+      this.plugin.renderFrame({ fft: this.fftData, waveform: this.waveData, dt, time: now, beat, bass, mid, treb, intensity, beatPhase, barPhase, bpm, chorus })
     } catch (e) { console.warn('[viz] plugin frame error', e) }
     // Render (plugin may have already drawn; ensure final pass)
     this.renderer.render(this.scene, this.camera)
@@ -209,6 +270,9 @@ export class VisualizationManager {
 
   dispose() {
     this.stop()
+    // cleanup feature bus subscriptions
+    try { this.unsubSnap?.() } catch {}
+    try { this.unsubBeat?.() } catch {}
     if (this.plugin) { try { this.plugin.dispose() } catch {} this.plugin = null }
     if (this.resizeObserver && this.container) this.resizeObserver.unobserve(this.container)
     window.removeEventListener('resize', this.onWindowResize)
