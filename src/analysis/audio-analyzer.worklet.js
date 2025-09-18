@@ -59,6 +59,9 @@ class AnalyzerProcessor extends AudioWorkletProcessor {
     super()
     this.sampleRate = sampleRate
     this.N = 2048
+    this.onsetK = 1.8
+    this.refractoryMs = 120
+    this._reconfigPending = false
     this.hann = new Float32Array(this.N)
     for (let i = 0; i < this.N; i++) this.hann[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (this.N - 1)))
     this.fft = new FFT2048()
@@ -86,6 +89,34 @@ class AnalyzerProcessor extends AudioWorkletProcessor {
     this.onsets = new Float32Array(64)
     this.onsetLen = 0
     this.tempoBPM = 0
+    this.port.onmessage = (ev) => {
+      const msg = ev.data || {}
+      if (msg && msg.type === 'config') {
+        const { fftSize, onsetK, refractoryMs } = msg
+        if (fftSize && (fftSize === 1024 || fftSize === 2048 || fftSize === 4096)) {
+          // Reset and resize buffers
+          this.N = fftSize
+          this.hann = new Float32Array(this.N)
+          for (let i = 0; i < this.N; i++) this.hann[i] = 0.5 * (1 - Math.cos(2 * Math.PI * i / (this.N - 1)))
+          this.fft = new FFT2048() // Note: internal FFT fixed at 2048 in this toy impl; acceptable for demo
+          this.r = new Float32Array(this.N)
+          this.i = new Float32Array(this.N)
+          this.mag = new Float32Array(this.N/2)
+          this.prevMag = new Float32Array(this.N/2)
+          this.frameBuf = new Float32Array(this.N * 2)
+          this.bufWrite = 0
+          this.hop = Math.max(1, Math.round(this.sampleRate / 60))
+          this.advance = 0
+          this.bandEdges = this._computeBandEdges(32)
+          this.bands = new Float32Array(32)
+          this.prevFlux = new Float32Array(120)
+          this.prevFluxLen = 0
+          this.prevFluxIdx = 0
+        }
+        if (typeof onsetK === 'number') this.onsetK = onsetK
+        if (typeof refractoryMs === 'number') this.refractoryMs = refractoryMs
+      }
+    }
   }
   _computeBandEdges(num) {
     // log-spaced between 20 Hz and Nyquist
@@ -157,9 +188,9 @@ class AnalyzerProcessor extends AudioWorkletProcessor {
     for (let i=0;i<this.prevFluxLen;i++) tmp[i] = Math.abs(this.prevFlux[i]-med)
     tmp.sort()
     const mad = this.prevFluxLen%2? tmp[mIdx] : 0.5*(tmp[mIdx-1]+tmp[mIdx])
-    const thresh = med + 1.8 * (mad || 1)
+  const thresh = med + (this.onsetK || 1.8) * (mad || 1)
     const now = currentTime * 1000
-    const refractory = 120
+  const refractory = this.refractoryMs || 120
     const onset = (flux > thresh) && (now - this.lastOnsetAt > refractory)
     this.onset = onset
     if (onset) { this.lastOnsetAt = now; this._registerOnset(now) }

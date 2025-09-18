@@ -1,127 +1,117 @@
-import { Outlet, useSearchParams } from 'react-router-dom'
-import PlayerBar from './components/PlayerBar'
-import NowPlayingHeader from '@/components/NowPlayingHeader'
-import TopTabs from '@/components/TopTabs'
-import { useEffect, useState } from 'react'
+import { Outlet, useLocation, useSearchParams } from 'react-router-dom'
+import { useEffect } from 'react'
 import { usePlayerStore } from '@/store/player'
-
+import PlayerBar from '@/components/PlayerBar'
+import VisualizerCanvas from '@/components/VisualizerCanvas'
+import PresetPicker from '@/components/PresetPicker'
+import SpotifyBridge from '@/components/SpotifyBridge'
+import useLocalAudioAnalyzer from '@/hooks/useLocalAudioAnalyzer'
 
 export default function App() {
-	const { visualizer, setReduceMotion, reduceMotion } = usePlayerStore() as any
-	const [showHelp, setShowHelp] = useState(false)
-	const [searchParams, setSearchParams] = useSearchParams()
+  const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tab = (searchParams.get('tab') as 'library' | 'visualizers' | 'settings') || 'visualizers'
 
-	// Ensure body gets base accent variable if missing
-	useEffect(() => {
-		if (typeof document !== 'undefined') {
-			const b = document.body
-			if (!b.style.getPropertyValue('--accent')) {
-				b.style.setProperty('--accent', '#1DB954')
-			}
-		}
-	}, [])
+  const setTab = (key: 'library' | 'visualizers' | 'settings') => {
+    const sp = new URLSearchParams(searchParams)
+    sp.set('tab', key)
+    setSearchParams(sp, { replace: true })
+  }
 
-	// Global keyboard shortcuts
-	useEffect(() => {
-		const handler = (e: KeyboardEvent) => {
-			if ((e.metaKey || e.ctrlKey) && e.key === '/') return // allow browser/IDE shortcuts
-			if (e.key === '?' || (e.shiftKey && e.key === '/')) { e.preventDefault(); setShowHelp(s => !s); return }
-			if (['1','2','3'].includes(e.key)) {
-				const tabMap: Record<string,string> = { '1':'library','2':'visualizers','3':'settings' }
-				const sp = new URLSearchParams(searchParams); sp.set('tab', tabMap[e.key]); setSearchParams(sp, { replace: true }); return
-			}
-			// Arrow left/right seek 5s: delegate to player API endpoints if available
-			if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
-				// PlayerBar already handles J/L; implement small seek here if focus outside range input
-				if ((document.activeElement && document.activeElement.tagName === 'INPUT')) return
-				const delta = e.key === 'ArrowLeft' ? -5000 : 5000
-				fetch('https://api.spotify.com/v1/me/player', { headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } })
-					.then(r => r.ok ? r.json() : null)
-					.then(d => { if (d?.progress_ms != null) { const pos = Math.max(0, d.progress_ms + delta); fetch(`https://api.spotify.com/v1/me/player/seek?position_ms=${pos}`, { method: 'PUT', headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } }).catch(()=>{}) } })
-				.catch(()=>{})
-			}
-			// Slash focus search handled in Sidebar component
-		}
-		window.addEventListener('keydown', handler)
-		return () => window.removeEventListener('keydown', handler)
-	}, [searchParams, setSearchParams])
+  // Start local analyzer (loopback/mic) when configured
+  const inputSource = usePlayerStore(s => s.inputSource)
+  useLocalAudioAnalyzer(inputSource === 'Loopback')
 
-	// Apply reduce motion class to root
-	useEffect(() => {
-		if (typeof document !== 'undefined') {
-			document.documentElement.dataset.reduceMotion = reduceMotion ? 'true' : 'false'
-		}
-	}, [reduceMotion])
+  // Delegate to child routes (e.g., /callback) when not on root
+  if (location.pathname !== '/') {
+    return <Outlet />
+  }
 
-	return (
-		<div className="h-screen w-screen text-white font-sans bg-gradient-to-br from-zinc-950 via-zinc-950 to-zinc-900">
-			<div className="h-full w-full grid grid-rows-[auto_auto_1fr_auto] gap-3 md:gap-4 px-4 py-3 md:px-6 md:py-5 max-w-[1800px] mx-auto box-border">
-				<NowPlayingHeader />
-				{/* Tabs bar */}
-				<div className="relative z-10">
-					<TopTabs />
-				</div>
-				{/* Visualizer region */}
-				<div className="relative min-h-0 rounded-2xl border border-white/10 bg-gradient-to-b from-[#0d1418] via-[#0a1014] to-[#070d11] backdrop-blur-sm shadow-[0_8px_40px_-12px_rgba(0,0,0,0.8)] overflow-hidden flex items-stretch justify-stretch">
-					<div className="viz-root w-full h-full">
-						<Outlet />
-					</div>
-					<button
-						className="absolute top-2 right-2 z-20 px-2 py-1 text-[11px] rounded-md bg-white/10 hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-dynamic)]"
-						onClick={() => {
-							const el = document.querySelector('.viz-root') as HTMLElement | null
-							if (el && el.requestFullscreen) el.requestFullscreen().catch(()=>{})
-						}}
-					>Fullscreen</button>
-				</div>
-				{/* Player bar */}
-				<div className="h-[72px]">
-					<PlayerBar />
-				</div>
-			</div>
-			{showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
-		</div>
-	)
+  // Bootstrap Spotify auth/session on load (rehydrate tokens/profile after refresh)
+  useEffect(() => {
+    try {
+      const access = localStorage.getItem('access_token')
+      if (!access) return
+      const refresh = localStorage.getItem('refresh_token')
+      const store = usePlayerStore.getState()
+      store.setTokens(access, refresh)
+      store.setAuthed(true)
+      if (!store.profile) {
+        import('@/lib/spotifyApi').then(async ({ Me }) => {
+          try {
+            const [profile, playlists] = await Promise.all([Me.profile(), Me.topPlaylists(20)])
+            usePlayerStore.getState().setProfile({ displayName: (profile as any).display_name, avatarUrl: (profile as any).images?.[0]?.url })
+            usePlayerStore.getState().setPlaylists((playlists as any).items || [])
+          } catch {}
+        })
+      }
+    } catch {}
+  }, [])
+
+  return (
+    <div className="h-screen w-screen grid grid-rows-[auto_1fr_auto] bg-neutral-950 text-neutral-100">
+      <SpotifyBridge />
+      {/* TopNav */}
+      <div className="border-b border-neutral-800 px-4 h-12 flex items-center gap-2">
+        <div className="font-semibold tracking-wide">Spotify Visualizer</div>
+        <nav className="ml-4 flex items-center gap-2 text-sm">
+          <Tab active={tab==='library'} onClick={() => setTab('library')}>Library</Tab>
+          <Tab active={tab==='visualizers'} onClick={() => setTab('visualizers')}>Visualizers</Tab>
+          <Tab active={tab==='settings'} onClick={() => setTab('settings')}>Settings</Tab>
+        </nav>
+      </div>
+
+      {/* Page */}
+      <div className="min-h-0">
+        {tab === 'visualizers' && (
+          <div className="h-full grid grid-cols-[300px_1fr] gap-0">
+            {/* Docked left panel column (no overlays) */}
+            <aside className="h-full border-r border-neutral-800 p-3 overflow-auto">
+              <div className="mb-3">
+                <PresetPicker />
+              </div>
+              {/* Reserved space for docked controls (settings/presets lists) */}
+              <div className="text-xs text-neutral-400">
+                Panels are docked here. Use Settings to configure analyzer and rotation.
+              </div>
+            </aside>
+            {/* Canvas column: full-bleed stage */}
+            <section className="h-full min-h-0">
+              <div className="w-full h-full">
+                <VisualizerCanvas />
+              </div>
+            </section>
+          </div>
+        )}
+        {tab === 'library' && (
+          <div className="h-full p-6">
+            <div className="text-sm text-neutral-400">Library placeholder</div>
+          </div>
+        )}
+        {tab === 'settings' && (
+          <div className="h-full grid grid-cols-[320px_1fr]">
+            <aside className="h-full border-r border-neutral-800 p-4 overflow-auto">
+              <div className="text-sm text-neutral-300 font-medium mb-2">Settings</div>
+              <div className="text-xs text-neutral-500">Add docked settings controls here.</div>
+            </aside>
+            <section className="p-6 text-sm text-neutral-400">Visualization settings and account controls.</section>
+          </div>
+        )}
+      </div>
+
+      {/* PlaybackBar */}
+      <div className="border-t border-neutral-800">
+        <PlayerBar />
+      </div>
+    </div>
+  )
 }
 
-function HelpModal({ onClose }: { onClose: () => void }) {
-	useEffect(() => {
-		const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
-		window.addEventListener('keydown', onKey)
-		return () => window.removeEventListener('keydown', onKey)
-	}, [onClose])
-	return (
-		<div role="dialog" aria-modal="true" aria-label="Keyboard shortcuts" className="fixed inset-0 z-[200] flex items-center justify-center p-4">
-			<div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-			<div className="relative w-full max-w-lg rounded-xl border border-white/15 bg-[#11181d]/95 shadow-2xl p-6 text-sm space-y-6">
-				<div className="flex items-start justify-between">
-					<h2 className="text-lg font-semibold">Keyboard Shortcuts</h2>
-					<button onClick={onClose} aria-label="Close" className="px-2 py-1 rounded-md bg-white/10 hover:bg-white/15">Esc</button>
-				</div>
-				<div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-					<Shortcut k="?" desc="Toggle this help" />
-					<Shortcut k="Space" desc="Play / Pause" />
-					<Shortcut k="J / L" desc="Seek -10s / +10s" />
-					<Shortcut k="← / →" desc="Seek -5s / +5s" />
-					<Shortcut k="↑ / ↓" desc="Volume up / down" />
-					<Shortcut k="M" desc="Mute" />
-					<Shortcut k="/" desc="Focus playlist search" />
-					<Shortcut k="1 2 3" desc="Switch tabs" />
-					<Shortcut k="Ctrl/Cmd + V" desc="Toggle render mode" />
-				</div>
-				<div className="pt-2 border-t border-white/10 text-xs text-white/50">Motion sensitive? Enable Reduce Motion in Settings → Performance.</div>
-			</div>
-		</div>
-	)
-}
-
-function Shortcut({ k, desc }: { k: string; desc: string }) {
-	return (
-		<div className="flex items-start gap-3">
-			<div className="flex flex-wrap gap-1 max-w-[140px]">
-				{k.split(' ').map(p => <kbd key={p} className="px-2 py-0.5 rounded bg-white/10 border border-white/15 text-[11px] font-mono tracking-wide">{p}</kbd>)}
-			</div>
-			<div className="text-white/70 flex-1 leading-relaxed">{desc}</div>
-		</div>
-	)
+function Tab({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      className={`px-3 py-1 rounded-md border text-sm ${active ? 'bg-neutral-800 border-neutral-700' : 'bg-neutral-900 border-neutral-800 hover:bg-neutral-800'}`}
+      onClick={onClick}
+    >{children}</button>
+  )
 }

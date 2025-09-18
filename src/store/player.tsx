@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { initiateAuth, logout as authLogout } from '@/lib/spotifyAuth'
 import { disconnectPlayer } from '@/lib/useSpotifyPlayer'
 import { getAccessToken } from '@/lib/spotifyAuth'
+import { setVolumeDebounced } from '@/lib/spotifyClient'
 
 
 interface PlayerState {
@@ -37,6 +38,13 @@ visualizer: 'bars' | 'wave' | 'particles'
 	}
 	inputSource: 'Loopback' | 'File'
 	setInputSource: (s: 'Loopback' | 'File') => void
+	// Settings
+	pollingStrategy: 'events' | 'events+polling'
+	setPollingStrategy: (m: 'events' | 'events+polling') => void
+	analyzer: { fftSize: 1024 | 2048 | 4096; onsetK: number; refractoryMs: number }
+	setAnalyzer: (p: Partial<PlayerState['analyzer']>) => void
+	presetRotation: { mode: 'manual' | 'bars' | 'idle'; bars?: number; idleSeconds?: number }
+	setPresetRotation: (p: Partial<PlayerState['presetRotation']>) => void
 	presets: { id: string; name: string; visualizer: PlayerState['visualizer']; settings: PlayerState['vizSettings'] }[]
 	// user profile and library
 	profile: { displayName?: string; avatarUrl?: string } | null
@@ -107,6 +115,17 @@ renderMode: 'raf',
 		return base
 	})(),
 	inputSource: (() => { try { const v = localStorage.getItem('inputSource'); if (v === 'File' || v === 'Loopback') return v; } catch {} return 'Loopback' })(),
+	pollingStrategy: (() => { try { const v = localStorage.getItem('pollingStrategy'); if (v === 'events+polling') return 'events+polling' } catch {} return 'events' })(),
+	analyzer: (() => {
+		try { const raw = localStorage.getItem('analyzer'); if (raw) return JSON.parse(raw) }
+		catch {}
+		return { fftSize: 2048 as 1024|2048|4096, onsetK: 1.8, refractoryMs: 120 }
+	})(),
+	presetRotation: (() => {
+		try { const raw = localStorage.getItem('presetRotation'); if (raw) return JSON.parse(raw) }
+		catch {}
+		return { mode: 'manual' as const, bars: 16, idleSeconds: 30 }
+	})(),
 presets: (() => {
 	if (typeof localStorage === 'undefined') return []
 	try { const raw = localStorage.getItem('vizPresets'); if (raw) return JSON.parse(raw) } catch {}
@@ -160,6 +179,9 @@ setVizSettings: (p) => set(s => {
 	return { vizSettings: next }
 }),
 setInputSource: (s) => { set({ inputSource: s }); try { localStorage.setItem('inputSource', s) } catch {} },
+	setPollingStrategy: (m) => { set({ pollingStrategy: m }); try { localStorage.setItem('pollingStrategy', m) } catch {} },
+	setAnalyzer: (p) => set(s => { const next = { ...s.analyzer, ...p }; try { localStorage.setItem('analyzer', JSON.stringify(next)) } catch {}; return { analyzer: next } }),
+	setPresetRotation: (p) => set(s => { const next = { ...s.presetRotation, ...p }; try { localStorage.setItem('presetRotation', JSON.stringify(next)) } catch {}; return { presetRotation: next } }),
 createPreset: (name) => set(s => {
 	const id = name.toLowerCase().replace(/[^a-z0-9]+/g,'-') + '-' + Math.random().toString(36).slice(2,6)
 	const preset = { id, name, visualizer: s.visualizer, settings: s.vizSettings }
@@ -256,11 +278,10 @@ setVolume: (v) => { set({ volume: v }); try { localStorage.setItem('volume', JSO
 	},
 	setPlayerVolume: async (v: number) => {
 		set({ volume: v })
-		const token = await getAccessToken();
 		const p: any = (window as any)._player
 		try {
 			if (p?.setVolume) await p.setVolume(v)
-			else await fetch(`https://api.spotify.com/v1/me/player/volume?volume_percent=${Math.round(v*100)}`, { method: 'PUT', headers: { 'Authorization': `Bearer ${token}` } })
+			else setVolumeDebounced(v, 150)
 		} catch(e) { console.warn('volume error', e) }
 	},
 	queue: async (uri: string) => {

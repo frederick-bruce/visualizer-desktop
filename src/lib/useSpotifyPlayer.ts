@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '@/store/player'
 import { getAccessToken } from './spotifyAuth'
-import { transferPlayback, listDevices } from './spotifyClient'
+import { transferPlayback, listDevices, SpotifyClient } from './spotifyClient'
 
 export function disconnectPlayer() { (window as any)._player?.disconnect?.() }
 
@@ -32,7 +32,7 @@ export function useSpotifyPlayer() {
 			try { usePlayerStore.getState().tick(ts) } catch {}
 			raf = requestAnimationFrame(loop)
 		}
-		rqaf: raf = requestAnimationFrame(loop)
+		raf = requestAnimationFrame(loop)
 		return () => { cancelAnimationFrame(raf); globalRafStarted = false }
 	}, [])
 
@@ -79,16 +79,26 @@ export function useSpotifyPlayer() {
 					setTimeout(() => { (window as any)._player?.connect?.() }, wait)
 				})
 
-				player.addListener('player_state_changed', async (state: any) => {
+					player.addListener('player_state_changed', async (state: any) => {
 					try {
 						if (!state) return
 						const st = store()
 						const current = state.track_window?.current_track
 						const duration = state.duration || current?.duration_ms || st.durationMs || 0
-						if (current) st.track = { id: current.id, name: current.name, artists: current.artists?.map((a:any)=>a.name).join(', '), albumArt: current.album?.images?.[0]?.url }
+						if (current) {
+							usePlayerStore.setState({
+								track: {
+									id: current.id,
+									name: current.name,
+									artists: current.artists?.map((a:any)=>a.name).join(', '),
+									albumArt: current.album?.images?.[0]?.url
+								}
+							})
+						}
+						// sync core playback fields
 						st.setFromSdk({ isPlaying: !state.paused, progressMs: state.position, durationMs: duration })
 						// buffered heuristic
-						st.bufferedMs = Math.min(state.position + 12_000, duration)
+						usePlayerStore.setState({ bufferedMs: Math.min(state.position + 12_000, duration) })
 						// Churn detection: if we have an sdkDeviceId but devices list shows not active, attempt silent transfer once
 						const s = usePlayerStore.getState()
 						if (s.sdkDeviceId && s.activeDeviceId !== s.sdkDeviceId) {
@@ -102,9 +112,19 @@ export function useSpotifyPlayer() {
 					} catch (e) { console.warn('state change error', e) }
 				})
 
-				player.addListener('initialization_error', (e: any) => console.error('init err', e))
-				player.addListener('authentication_error', (e: any) => console.error('auth err', e))
-				player.addListener('account_error', (e: any) => console.error('account err', e))
+				player.addListener('initialization_error', (e: any) => {
+					console.error('init err', e)
+					try { usePlayerStore.getState().setAuthError?.('Initialization error. Please reload and ensure Spotify is reachable.') } catch {}
+				})
+				player.addListener('authentication_error', (e: any) => {
+					console.error('auth err', e)
+					try { usePlayerStore.getState().setAuthError?.('Authentication error. Please reconnect your Spotify account.') } catch {}
+				})
+				player.addListener('account_error', (e: any) => {
+					console.error('account err', e)
+					// Web Playback SDK requires Premium
+					try { usePlayerStore.getState().setAuthError?.('Account error. Spotify Premium is required for playback in this app.') } catch {}
+				})
 				player.addListener('playback_error', (e: any) => console.error('playback err', e))
 
 				player.connect()
@@ -122,35 +142,52 @@ export function useSpotifyPlayer() {
 		if (p?.setVolume) p.setVolume(volume).catch(()=>{})
 	}, [volume])
 
-	// Fallback polling when playback is on external device (SDK not providing frequent events)
-	useEffect(() => {
-		if (!accessToken) return
-		let stopped = false
-		const lastEventRef = { t: performance.now() }
-		// Update ref whenever SDK listener fires by wrapping setFromSdk temporarily inside this hook's scope
-		const orig = usePlayerStore.getState().setFromSdk
-		usePlayerStore.getState().setFromSdk = (p: any) => { lastEventRef.t = performance.now(); orig(p) }
-		const poll = async () => {
-			if (stopped) return
-			const st = usePlayerStore.getState()
-			const since = performance.now() - lastEventRef.t
-			if (since > 4500 || !st.deviceId) {
-				try {
-					const token = await getAccessToken(); if (!token) throw new Error('no token')
-					const r = await fetch('https://api.spotify.com/v1/me/player', { headers: { Authorization: `Bearer ${token}` } })
-					if (r.ok) {
-						const j = await r.json()
-						if (j && j.item) {
-							usePlayerStore.getState().setFromSdk({ isPlaying: !!j.is_playing, progressMs: j.progress_ms || 0, durationMs: j.item.duration_ms || 0 })
+		// syncParity: subscribe to fine-grained SDK events; every 5s pull /me/player only if stale and diverged
+		useEffect(() => {
+			if (!accessToken) return
+			let stopped = false
+			const lastEventRef = { t: performance.now() }
+			// Wrap setFromSdk to mark last SDK event arrival
+			const orig = usePlayerStore.getState().setFromSdk
+			usePlayerStore.getState().setFromSdk = (p: any) => { lastEventRef.t = performance.now(); orig(p) }
+			const tick = async () => {
+				if (stopped) return
+				const s = usePlayerStore.getState()
+				const staleFor = performance.now() - lastEventRef.t
+				const isPlaying = s.isPlaying
+				// Only consider parity fetch when playing and events are stale (>4.5s)
+				if (isPlaying && staleFor > 4500) {
+						try {
+							const remote = await SpotifyClient.playback()
+							if (remote && remote.item) {
+							const remoteId = remote.item.id
+							const localId = s.track?.id
+							const remoteMs = remote.progress_ms || 0
+							const localMs = s.progressMs || 0
+							const drift = Math.abs(remoteMs - localMs)
+							if (remoteId !== localId || drift > 1000) {
+								usePlayerStore.getState().setFromSdk({ isPlaying: !!remote.is_playing, progressMs: remoteMs, durationMs: remote.item.duration_ms || 0 })
+							}
+								// Always mirror track metadata so UI has art/title even when events are stale
+								try {
+									const itm: any = remote.item as any
+									usePlayerStore.setState({
+										track: {
+											id: itm.id,
+											name: itm.name,
+											artists: (itm.artists || []).map((a:any)=>a.name).join(', '),
+											albumArt: itm.album?.images?.[0]?.url
+										}
+									})
+								} catch {}
 						}
-					}
-				} catch {}
+					} catch {}
+				}
+				setTimeout(tick, 5000)
 			}
-			setTimeout(poll, 3200 + Math.random()*800)
-		}
-		poll()
-		return () => { stopped = true; usePlayerStore.getState().setFromSdk = orig }
-	}, [accessToken])
+			tick()
+			return () => { stopped = true; usePlayerStore.getState().setFromSdk = orig }
+		}, [accessToken])
 
 	// Device activation polling: after sdk ready but not active, poll /me/player until active or timeout
 	useEffect(() => {

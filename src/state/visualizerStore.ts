@@ -8,6 +8,10 @@ export type AnalysisFrame = {
   onset?: boolean
   tempoBPM?: number | null
   bands?: number[]
+  beatPhase?: number | null
+  bass?: number
+  mid?: number
+  treble?: number
 }
 
 export type SpotifySlice = {

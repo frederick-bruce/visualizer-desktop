@@ -37,13 +37,18 @@ export class AudioAnalyzer {
       // Fallback: try relative path under base
       await this.ctx.audioWorklet.addModule('analysis/audio-analyzer.worklet.js')
     }
-    this.workletNode = new AudioWorkletNode(this.ctx, 'audio-analyzer')
+  this.workletNode = new AudioWorkletNode(this.ctx, 'audio-analyzer')
     this.workletNode.port.onmessage = (ev) => {
       const f = ev.data as AnalyzerFrame
       // Update tempo/phase using onsets and timestamps
       if (f.onset) this.registerOnset(f.nowMs ?? performance.now())
       this.subs.forEach(cb => cb(f))
     }
+  }
+
+  setConfig(cfg: { fftSize?: 1024|2048|4096; onsetK?: number; refractoryMs?: number }) {
+    if (!this.workletNode) return
+    this.workletNode.port.postMessage({ type: 'config', ...cfg })
   }
 
   async connectFrom(source: HTMLMediaElement | MediaStream): Promise<void> {

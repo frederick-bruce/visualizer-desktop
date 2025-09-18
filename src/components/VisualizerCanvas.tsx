@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { usePlayerStore } from '@/store/player'
 import { Analysis } from '@/lib/spotifyApi'
 import { buildTimeline, intensityAt, bpmAt, computeBandAverages } from '@/lib/beatmap'
+import { getCurrentlyPlayingETagged } from '@/lib/spotifyClient'
+import { usePlayerStore } from '@/store/player'
 import * as V from '@/visualizers'
 import { presets } from '@/visuals/presets'
 import { useVisualizerState } from '@/state/visualizerStore'
+import type { AnalysisFrame } from '@/state/visualizerStore'
 
 // Simple shared RAF clock so multiple components can subscribe without duplicating RAF cost.
 const subscribers: Set<(t: number, dt: number) => void> = new Set()
@@ -35,6 +37,17 @@ const [viz, setViz] = useState<V.Visualizer>(() => V.bars)
 const timelineRef = useRef<ReturnType<typeof buildTimeline> | null>(null)
 const timeRef = useRef(0)
 const inactive = useVisualizerState(s => s.inactive)
+// Hold latest analysis frame in a ref to avoid stale closures and unnecessary re-renders
+const frameRef = useRef<AnalysisFrame | undefined>(undefined)
+useEffect(() => {
+	// Seed with current state
+	frameRef.current = useVisualizerState.getState().analysisFrame
+	// Subscribe to store changes and update ref only
+	const unsub = useVisualizerState.subscribe((s) => {
+		frameRef.current = s.analysisFrame
+	}) as unknown as () => void
+	return () => { try { unsub && unsub() } catch {} }
+}, [])
 
 
 // Swap visualizer preset
@@ -43,23 +56,26 @@ setViz(visualizer === 'bars' ? V.bars : visualizer === 'wave' ? V.wave : V.parti
 }, [visualizer])
 
 
-// Track polling for current item + analysis
+// Track polling for current item + analysis (fallback; primary analysis now comes from SpotifyBridge)
 useEffect(() => {
 	let canceled = false
 	async function load() {
 		try {
-			const me = await fetch('https://api.spotify.com/v1/me/player/currently-playing', { headers: { 'Authorization': `Bearer ${localStorage.getItem('access_token')}` } })
-			if (!me.ok) return
-			const data = await me.json()
+			const res = await getCurrentlyPlayingETagged()
+			if (!res || res.status === 204) return
+			const data: any = res.body
 			const id = data?.item?.id as string | undefined
 			if (!id) return
 			const analysis = await Analysis.audioAnalysis(id)
 			if (!canceled) timelineRef.current = buildTimeline(analysis)
 		} catch {}
 	}
+	const polling = usePlayerStore.getState().pollingStrategy
 	load()
-	const t = setInterval(load, 8000)
-	return () => { canceled = true; clearInterval(t) }
+	// Light polling only when configured; otherwise rely on events (no-op here)
+	const intervalMs = (polling === 'events+polling') ? 5000 : 0
+	const t = intervalMs ? setInterval(load, intervalMs) : null
+	return () => { canceled = true; if (t) clearInterval(t) }
 }, [])
 
 
@@ -114,12 +130,14 @@ useEffect(() => {
 		const maxDt = 0.05
 		if (dt > maxDt) dt = maxDt
 		timeRef.current += dt
-		const tl = timelineRef.current
-		const intensityBase = tl ? intensityAt(tl, timeRef.current) : 0.6
+	// Prefer central analysis frame (from SpotifyBridge) when available
+	const tl = timelineRef.current
+	const f = frameRef.current
+		const intensityBase = f?.rms ?? (tl ? intensityAt(tl, timeRef.current) : 0.6)
 		const sensitivity = usePlayerStore.getState().vizSettings?.sensitivity ?? 1
 		let intensity = intensityBase * sensitivity
-		const bpm = tl ? bpmAt(tl, timeRef.current) : undefined
-	const bandAverages = computeBandAverages(timeRef.current, 8)
+		const bpm = f?.tempoBPM ?? (tl ? bpmAt(tl, timeRef.current) : undefined)
+	const bandAverages = (f?.bands && f.bands.length ? f.bands : computeBandAverages(timeRef.current, 32))
 
 		// Low power adjustments: reduce intensity variance slightly & skip every other frame for particles
 		if (lowPowerMode || isLowEnd) {
@@ -177,8 +195,12 @@ useEffect(() => {
 									height: c.clientHeight,
 									time: timeRef.current,
 									analysis: {
-										rms: intensity, // use intensity as rms proxy
+										rms: intensity,
 										tempoBPM: bpm,
+										onset: f?.onset,
+										bass: f?.bass,
+										mid: f?.mid,
+										treble: f?.treble,
 										bands: bandAverages as any
 									}
 								})

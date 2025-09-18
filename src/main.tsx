@@ -4,22 +4,12 @@ import { createBrowserRouter, RouterProvider } from 'react-router-dom'
 import ErrorBoundary from '@/components/ErrorBoundary'
 import './index.css'
 import App from './App'
-import Home from './routes/Home'
-import Dashboard from './routes/Dashboard'
 import Callback from './routes/Callback'
 
 
 const router = createBrowserRouter([
-{
-path: '/',
-element: <App />,
-children: [
-	{ index: true, element: <Dashboard /> },
-	{ path: 'home', element: <Home /> },
-	{ path: 'dashboard', element: <Dashboard /> },
-	{ path: 'callback', element: <Callback /> },
-]
-},
+  { path: '/', element: <App /> },
+  { path: '/callback', element: <Callback /> },
 ])
 
 

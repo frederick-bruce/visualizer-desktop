@@ -174,6 +174,20 @@ export default function PlayerBar() {
 				</div>
 			)}
 			<div className="flex flex-col md:flex-row md:items-center gap-3 md:gap-6 w-full">
+				{/* Now Playing cluster (art + title/artist) */}
+				<div className="flex items-center gap-3 min-w-0 order-1">
+					<div className="w-10 h-10 rounded-md overflow-hidden bg-white/10 flex items-center justify-center">
+						{(store.track as any)?.albumArt ? (
+							<img src={(store.track as any).albumArt} alt={(store.track as any)?.name || 'album art'} className="w-full h-full object-cover" />
+						) : (
+							<div className="text-[10px] text-white/40">—</div>
+						)}
+					</div>
+					<div className="flex flex-col min-w-0">
+						<div className="text-[12px] leading-tight truncate">{(store.track as any)?.name || '—'}</div>
+						<div className="text-[11px] leading-tight text-white/60 truncate">{(store.track as any)?.artists || ''}</div>
+					</div>
+				</div>
 						{noDevice && (
 							<div className="absolute -top-6 left-4 text-[11px] px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-200 flex items-center gap-2">
 								<span>No active device</span>
@@ -226,6 +240,17 @@ export default function PlayerBar() {
 				</div>
 				{/* Right cluster */}
 				<div className="flex items-center gap-3 md:gap-4 order-2 md:order-3 ml-auto">
+					{/* Activate device if not active */}
+					{noDevice && (
+						<Tooltip label="Make this app the active device">
+							<button
+								onClick={async () => { try { if ((store as any).sdkDeviceId) { await transferPlayback({ deviceId: (store as any).sdkDeviceId, play: isPlaying }); (store as any).refreshDevices() } } catch {} }}
+								className="px-2 h-9 rounded-md text-[12px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30"
+							>
+								Activate This App
+							</button>
+						</Tooltip>
+					)}
 					{/* Volume */}
 					<Tooltip label={volume === 0 ? 'Unmute (M)' : 'Mute (M)'}>
 						<button
