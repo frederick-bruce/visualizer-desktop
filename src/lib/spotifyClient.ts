@@ -132,7 +132,11 @@ export async function getCurrentlyPlayingETagged() {
     return fetch(`${API}${path}`, { headers })
   }
   let res = await make(token)
-  if (res.status === 401) { token = await getAccessToken() as any; if (!token) throw { kind: 'Auth', message: 'Unauthorized' } as ClientError; res = await make(token) }
+  if (res.status === 401) {
+    token = await getAccessToken() as any
+    if (!token) return { status: 401 as const, body: null, unchanged: false } as any
+    res = await make(token)
+  }
   if (res.status === 429) {
     const ra = Number(res.headers.get('Retry-After') || '1')
     await sleep(Math.max(ra*1000, 300))

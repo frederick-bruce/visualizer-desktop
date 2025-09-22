@@ -288,13 +288,24 @@ setVolume: (v) => { set({ volume: v }); try { localStorage.setItem('volume', JSO
 	},
 	setFromSdk: ({ isPlaying, progressMs, durationMs }) => set(s => {
 		const now = performance.now()
-		if (typeof s.progressMs === 'number') {
-			const drift = Math.abs(progressMs - s.progressMs)
-			if (drift < 150) {
-				return { isPlaying, durationMs, lastProgressUpdateAt: now }
-			}
+		const prevPlaying = s.isPlaying
+		const prevDuration = s.durationMs
+		const prevProgress = s.progressMs
+		const changedPlaying = prevPlaying !== isPlaying
+		const changedDuration = prevDuration !== durationMs
+		let progressChanged = true
+		if (typeof prevProgress === 'number') {
+			const drift = Math.abs(progressMs - prevProgress)
+			// Ignore tiny drifts to avoid unnecessary updates
+			progressChanged = drift >= 150
 		}
-		return { isPlaying, progressMs, durationMs, lastProgressUpdateAt: now }
+		if (!changedPlaying && !changedDuration && !progressChanged) {
+			return {}
+		}
+		const next: any = { isPlaying }
+		if (progressChanged) { next.progressMs = progressMs; next.lastProgressUpdateAt = now }
+		if (changedDuration) { next.durationMs = durationMs }
+		return next
 	}),
 	tick: (now) => set(s => {
 		if (!s.isPlaying || s.durationMs == null || s.durationMs <= 0) return {}

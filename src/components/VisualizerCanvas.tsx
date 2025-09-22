@@ -32,7 +32,13 @@ function subscribe(fn: (t: number, dt: number) => void) {
 
 export default function VisualizerCanvas() {
 const canvasRef = useRef<HTMLCanvasElement | null>(null)
-const { visualizer, renderMode, setRenderMode, lowPowerMode, isLowEnd, styleMode } = usePlayerStore() as any
+// Use fine-grained selectors to avoid re-rendering on unrelated store changes
+const visualizer = usePlayerStore(s => s.visualizer)
+const renderMode = usePlayerStore(s => s.renderMode)
+const setRenderMode = usePlayerStore(s => s.setRenderMode)
+const lowPowerMode = usePlayerStore(s => s.lowPowerMode)
+const isLowEnd = usePlayerStore(s => s.isLowEnd)
+const styleMode = usePlayerStore(s => s.styleMode)
 const [viz, setViz] = useState<V.Visualizer>(() => V.bars)
 const timelineRef = useRef<ReturnType<typeof buildTimeline> | null>(null)
 const timeRef = useRef(0)
@@ -117,15 +123,17 @@ useEffect(() => {
 	let lastStepped = performance.now()
 	let intervalId: any = null
 
-	function renderTick(ts: number, dt: number) {
+		function renderTick(ts: number, dt: number) {
 		if (stopped) return
-		if (renderMode === 'raf') {
+			if (renderMode === 'raf') {
 			step(dt)
 		}
 	}
 
 		function step(dt: number) {
 		if (!c || !ctx) return
+		// If the canvas isn't laid out yet, skip this frame
+		if (!(c.clientWidth > 0 && c.clientHeight > 0)) return
 		resize()
 		// In low power mode, clamp dt to avoid large jumps and optionally drop frames
 		const maxDt = 0.05

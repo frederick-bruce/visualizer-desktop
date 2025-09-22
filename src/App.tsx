@@ -40,7 +40,8 @@ export default function App() {
       const refresh = localStorage.getItem('refresh_token')
       const store = usePlayerStore.getState()
       store.setTokens(access, refresh)
-      store.setAuthed(true)
+      // Only set authed optimistic if we have both an access token and a refresh token
+      if (access && refresh) store.setAuthed(true)
       if (!store.profile) {
         import('@/lib/spotifyApi').then(async ({ Me }) => {
           try {
@@ -74,21 +75,23 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
-  const drawer = useUiStore()
-  // Reactive selectors so header updates when store changes
-  const track = usePlayerStore(s => s.track || {}) as any
-  const devices = usePlayerStore(s => s.devices || []) as any[]
+  // Use fine-grained selectors and avoid creating new objects/arrays as defaults
+  const drawerOpen = useUiStore(s => s.drawerOpen)
+  const openDrawer = useUiStore(s => s.openDrawer)
+  const closeDrawer = useUiStore(s => s.closeDrawer)
+  const track = usePlayerStore(s => s.track) as any
+  const devices = usePlayerStore(s => s.devices) as any[] | undefined
   const activeDeviceId = usePlayerStore(s => s.activeDeviceId || null) as string | null
   const sdkDeviceId = usePlayerStore(s => s.sdkDeviceId || null) as string | null
-  const deviceName = devices.find(d => d.id === activeDeviceId)?.name
+  const deviceName = devices?.find?.(d => d.id === activeDeviceId)?.name
   const header = (
     <HeaderBar
-      trackTitle={track.name}
-      trackArtist={track.artists}
-      artworkUrl={track.albumArt}
+      trackTitle={track?.name}
+      trackArtist={track?.artists}
+      artworkUrl={track?.albumArt}
       deviceName={deviceName}
       deviceConnected={!!activeDeviceId}
-      onToggleSidebar={() => (drawer.drawerOpen ? drawer.closeDrawer() : drawer.openDrawer())}
+      onToggleSidebar={() => (drawerOpen ? closeDrawer() : openDrawer())}
       devicePicker={<DevicePicker sdkDeviceId={sdkDeviceId || undefined} />}
     />
   )

@@ -182,6 +182,10 @@ export class PresetManager {
 
   render(targetCtx: CanvasRenderingContext2D, args: { width: number; height: number; time: number; analysis?: AnalysisLike }) {
     const { width: w, height: h, time } = args
+    if (!w || !h || w <= 0 || h <= 0) {
+      // Layout not ready; skip this frame
+      return
+    }
     this.ensureBuffers(w, h)
     const a = (args.analysis || {})
     this.updateEnvelopes(a)

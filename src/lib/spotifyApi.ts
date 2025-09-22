@@ -26,11 +26,13 @@ async function authed<T>(path: string, init?: RequestInit): Promise<T> {
 
 	let res = await makeRequest(token)
 
-	// If unauthorized, attempt to refresh token once and retry
+		// If unauthorized, attempt to refresh token once and retry
 	if (res.status === 401) {
 		console.warn('[spotifyApi] 401 unauthorized, attempting token refresh')
 		token = await getAccessToken()
-		if (!token) throw new Error('No token after refresh')
+			if (!token) {
+				throw new Error('Unauthorized: no token after refresh')
+			}
 		res = await makeRequest(token)
 	}
 
@@ -52,7 +54,7 @@ async function authed<T>(path: string, init?: RequestInit): Promise<T> {
 		}
 	}
 
-	if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
+		if (!res.ok) throw new Error(`${res.status} ${res.statusText}`)
 
 	// Some Spotify endpoints return 204 No Content (e.g., play/pause). Return null for those.
 	if (res.status === 204) return null as any

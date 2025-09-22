@@ -24,11 +24,15 @@ export function Tooltip({ label, children, side='top', delayMs=400, className=''
   const hide = () => { if (delayHandle) window.clearTimeout(delayHandle); setOpen(false) }
 
   const child = React.cloneElement(children, {
-    ref: (node: HTMLElement) => { ref.current = node; const existing: any = (children as any).ref; if (typeof existing === 'function') existing(node) },
-    onMouseEnter: (e: any) => { (children.props as any).onMouseEnter?.(e); show() },
-    onMouseLeave: (e: any) => { (children.props as any).onMouseLeave?.(e); hide() },
-    onFocus: (e: any) => { (children.props as any).onFocus?.(e); show() },
-    onBlur: (e: any) => { (children.props as any).onBlur?.(e); hide() },
+    ref: (node: HTMLElement) => {
+      ref.current = node
+      const existing: any = (children as any).ref
+      if (typeof existing === 'function') existing(node)
+    },
+    onMouseEnter: (e: any) => { try { (children.props as any).onMouseEnter?.(e) } finally { show() } },
+    onMouseLeave: (e: any) => { try { (children.props as any).onMouseLeave?.(e) } finally { hide() } },
+    onFocus: (e: any) => { try { (children.props as any).onFocus?.(e) } finally { show() } },
+    onBlur: (e: any) => { try { (children.props as any).onBlur?.(e) } finally { hide() } },
     'aria-describedby': open ? id.current : undefined
   })
 

@@ -84,6 +84,9 @@ export default function SpotifyBridge() {
             currentTrackIdRef.current = id
             try { const analysis = await Analysis.audioAnalysis(id); timelineRef.current = buildTimeline(analysis) } catch { timelineRef.current = null }
           }
+        } else if (res?.status === 401) {
+          // Unauthed; pause polling for a bit
+          await new Promise(r => setTimeout(r, 5000))
         }
       } catch {}
       t = setTimeout(tick, 5000)

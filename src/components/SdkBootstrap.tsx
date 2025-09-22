@@ -8,7 +8,7 @@ export default function SdkBootstrap() {
   const initializedRef = useRef(false)
 
   useEffect(() => {
-    if (!isAuthed) return
+  if (!isAuthed) return
     if (initializedRef.current) return
     let cancelled = false
     let player: any = null
@@ -26,8 +26,8 @@ export default function SdkBootstrap() {
 
     const setup = async () => {
       try {
-        const token = await getAccessToken()
-        if (!token) return
+  const token = await getAccessToken()
+  if (!token) return
         await loadSdk()
         if (cancelled) return
         const store = usePlayerStore.getState()
@@ -72,20 +72,23 @@ export default function SdkBootstrap() {
             const current = state.track_window?.current_track
             const duration = state.duration || current?.duration_ms || 0
             if (current) {
-              usePlayerStore.setState({
-                track: {
-                  id: current.id,
-                  name: current.name,
-                  artists: (current.artists || []).map((a:any)=>a.name).join(', '),
-                  albumArt: current.album?.images?.[0]?.url,
-                }
-              })
+              const prev = usePlayerStore.getState().track || {}
+              const nextId = current.id
+              const nextName = current.name
+              const nextArtists = (current.artists || []).map((a:any)=>a.name).join(', ')
+              const nextArt = current.album?.images?.[0]?.url
+              const changed = prev.id !== nextId || prev.name !== nextName || prev.artists !== nextArtists || prev.albumArt !== nextArt
+              if (changed) {
+                usePlayerStore.setState({
+                  track: { id: nextId, name: nextName, artists: nextArtists, albumArt: nextArt }
+                })
+              }
             }
             usePlayerStore.getState().setFromSdk({ isPlaying: !state.paused, progressMs: state.position, durationMs: duration })
           } catch {}
         })
 
-        try { await player.connect() } catch {}
+  try { if (isAuthed) await player.connect() } catch {}
         initializedRef.current = true
       } catch {}
     }

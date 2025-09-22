@@ -73,13 +73,19 @@ export async function handleAuthRedirect() {
 	} catch {}
 }
 
+let refreshFailUntil = 0
+
 async function refreshIfNeeded(): Promise<string | null> {
 	const access_token = localStorage.getItem('access_token')
 	const refresh_token = localStorage.getItem('refresh_token')
 	const expires_at = Number(localStorage.getItem('expires_at') || '0')
 	const now = Date.now()
+	// If we have a valid, non-expired access token, use it
 	if (access_token && expires_at && (expires_at - now) > 60_000) return access_token
-	if (!refresh_token) return access_token
+	// If no refresh token, treat as unauthenticated when expired
+	if (!refresh_token) return null
+	// Backoff after a failed refresh to avoid storms
+	if (now < refreshFailUntil) return null
 	if (inFlightRefresh) return inFlightRefresh
 	inFlightRefresh = (async () => {
 		const form = new URLSearchParams({
@@ -89,7 +95,7 @@ async function refreshIfNeeded(): Promise<string | null> {
 		})
 		try {
 			const res = await fetch('https://accounts.spotify.com/api/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: form })
-			if (!res.ok) throw new Error('Refresh failed')
+			if (!res.ok) throw new Error(String(res.status))
 			const data = await res.json() as { access_token: string; expires_in: number }
 			const expiresAt = Date.now() + (data.expires_in * 1000)
 			localStorage.setItem('access_token', data.access_token)
@@ -99,7 +105,16 @@ async function refreshIfNeeded(): Promise<string | null> {
 			return data.access_token
 		} catch (e) {
 			console.warn('Token refresh error', e)
-			return access_token
+			// Clear tokens and set short cooldown to stop loops
+			try {
+				localStorage.removeItem('access_token')
+				localStorage.removeItem('expires_at')
+				const { usePlayerStore } = await import('@/store/player')
+				usePlayerStore.getState().setAuthed(false)
+				usePlayerStore.getState().setAuthError?.('Session expired. Please reconnect Spotify.')
+			} catch {}
+			refreshFailUntil = Date.now() + 60_000
+			return null
 		} finally {
 			inFlightRefresh = null
 		}

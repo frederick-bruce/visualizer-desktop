@@ -19,6 +19,21 @@ export default function PlayerBar() {
 	const { isAuthed, isPlaying, volume, setVolume, mute, unmute, login, authError, play, pause, next, prev, seek, deviceId } = store as any
 	const { progressMs, durationMs, bufferedMs, setFromSdk } = store as any
 
+	// Smooth playback progress interpolation (local-only; no store writes)
+	const baselineRef = useRef<{ base: number; at: number }>({ base: progressMs ?? 0, at: performance.now() })
+	const [tick, setTick] = useState(0)
+	// Re-baseline when store progress or play/pause changes
+	useEffect(() => {
+		baselineRef.current = { base: progressMs ?? 0, at: performance.now() }
+	}, [progressMs, isPlaying])
+	// Lightweight timer only while playing to trigger re-render
+	useEffect(() => {
+		if (!isPlaying) return
+		const TICK_MS = 200
+		const id = setInterval(() => setTick(t => (t + 1) % 1_000_000), TICK_MS)
+		return () => clearInterval(id)
+	}, [isPlaying])
+
 	// Optimistic scrubbing state (local only while dragging / after a key seek until we reconcile)
 	const [optimisticPos, setOptimisticPos] = useState<number | null>(null)
 	const [dragging, setDragging] = useState(false)
@@ -26,8 +41,14 @@ export default function PlayerBar() {
 	const hoverRef = useRef<HTMLDivElement | null>(null)
 	const [hoverTime, setHoverTime] = useState<number | null>(null)
 	// Removed duplicate devices UI; single DevicePicker in header is the only source of truth
-	// Current displayed position: prefer optimistic while dragging, else store progressMs
-	const liveProgress = optimisticPos != null ? optimisticPos : (progressMs ?? 0)
+	// Current displayed position: prefer optimistic while dragging, else interpolated progress
+	const interpolated = (() => {
+		if (!isPlaying) return progressMs ?? 0
+		const { base, at } = baselineRef.current
+		const delta = Math.max(0, performance.now() - at)
+		return base + delta
+	})()
+	const liveProgress = optimisticPos != null ? optimisticPos : interpolated
 
 	// When store progress catches up after a seek we clear optimistic state
 	useEffect(() => {
