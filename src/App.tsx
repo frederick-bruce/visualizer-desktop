@@ -1,13 +1,16 @@
 import { Outlet, useLocation, useSearchParams } from 'react-router-dom'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { usePlayerStore } from '@/store/player'
 import VisualizerCanvas from '@/components/VisualizerCanvas'
 import SpotifyBridge from '@/components/SpotifyBridge'
-import useLocalAudioAnalyzer from '@/hooks/useLocalAudioAnalyzer'
 import Sidebar from '@/components/Sidebar'
 import NowPlayingBar from '@/components/NowPlayingBar'
 import { useVisualizerState } from '@/state/visualizerStore'
 import '@/styles/app.css'
+import VisualLayout from '@/components/VisualLayout'
+import HeaderBar from '@/components/HeaderBar'
+import DevicePicker from '@/components/DevicePicker'
+import { useUiStore } from '@/store/ui'
 
 export default function App() {
   const location = useLocation()
@@ -20,9 +23,8 @@ export default function App() {
     setSearchParams(sp, { replace: true })
   }
 
-  // Start local analyzer (loopback/mic) when configured
-  const inputSource = usePlayerStore(s => s.inputSource)
-  useLocalAudioAnalyzer(inputSource === 'Loopback')
+  // Disable mic/loopback analyzer in analysis-only path
+  // (kept available in store, but not invoked here)
 
   // Delegate to child routes (e.g., /callback) when not on root
   if (location.pathname !== '/') {
@@ -71,33 +73,31 @@ export default function App() {
     return () => window.removeEventListener('keydown', onKey)
   }, [])
 
+  const drawer = useUiStore()
+  const s = usePlayerStore.getState() as any
+  const track = s.track || {}
+  const header = (
+    <HeaderBar
+      trackTitle={track.name}
+      trackArtist={track.artists}
+      artworkUrl={track.albumArt}
+      deviceName={s.devices?.find?.((d:any)=>d.id===s.activeDeviceId)?.name}
+      deviceConnected={!!s.activeDeviceId}
+      onToggleSidebar={() => (drawer.drawerOpen ? drawer.closeDrawer() : drawer.openDrawer())}
+      devicePicker={<DevicePicker sdkDeviceId={s.sdkDeviceId || undefined} />}
+    />
+  )
+  const footer = (<NowPlayingBar />)
+
   return (
-    <div className="app-grid bg-neutral-950 text-neutral-100">
+    <div className="bg-neutral-950 text-neutral-100">
       <SpotifyBridge />
-      {/* Top bar */}
-      <div className="border-b border-neutral-800 px-4 h-12 flex items-center gap-2">
-        <div className="font-semibold tracking-wide">Spotify Visualizer</div>
-        <nav className="ml-4 flex items-center gap-2 text-sm">
-          <Tab active={tab==='library'} onClick={() => setTab('library')}>Library</Tab>
-          <Tab active={tab==='visualizers'} onClick={() => setTab('visualizers')}>Visualizers</Tab>
-          <Tab active={tab==='settings'} onClick={() => setTab('settings')}>Settings</Tab>
-        </nav>
-      </div>
-
-      {/* Page */}
-      <div className="app-main min-h-0">
-        {/* Sidebar (collapsible) */}
-        <Sidebar />
-        {/* Main canvas area */}
-        <main className="min-h-0">
-          <div className="canvas-host">
-            <VisualizerCanvas />
-          </div>
-        </main>
-      </div>
-
-      {/* Now Playing bar (only place with song/artist/time) */}
-      <NowPlayingBar />
+      <VisualLayout
+        header={header}
+        sidebar={<Sidebar />}
+        main={<div className="relative h-full w-full"><VisualizerCanvas /></div>}
+        footer={footer}
+      />
     </div>
   )
 }

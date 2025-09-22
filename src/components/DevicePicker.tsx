@@ -1,94 +1,71 @@
 import React, { useEffect, useState } from 'react'
-import { usePlayerStore } from '@/store/player'
-import { transferPlayback, listDevices } from '@/lib/spotifyClient'
-import { Check, Loader2, RefreshCcw, WifiOff, AlertTriangle } from 'lucide-react'
+import { listDevices, transferPlayback } from '@/lib/spotifyClient'
 
-interface TransferState { deviceId: string; status: 'idle' | 'transferring' | 'done' | 'error'; errorKind?: string; httpStatus?: number }
+export type DevicePickerProps = {
+  token?: string // token resolved internally by client helpers, optional
+  sdkDeviceId?: string
+  onTransferToSdk?: () => Promise<void>
+}
 
-export default function DevicePicker() {
-  const { devices, sdkDeviceId, activeDeviceId, refreshDevices } = usePlayerStore() as any
-  const [localDevices, setLocalDevices] = useState<any[]>(devices || [])
+export default function DevicePicker({ sdkDeviceId, onTransferToSdk }: DevicePickerProps) {
+  const [devices, setDevices] = useState<{ id: string; name?: string; is_active: boolean }[]>([])
   const [loading, setLoading] = useState(false)
-  const [transfer, setTransfer] = useState<TransferState | null>(null)
-  const [diagOpen, setDiagOpen] = useState(false)
-  const lastTransferStatus = usePlayerStore(s => s.lastTransferStatus)
+  const [status, setStatus] = useState<'idle' | 'transferring' | 'connected' | 'error'>('idle')
+  const [err, setErr] = useState<string | null>(null)
 
-  const fetchList = async () => {
+  const refresh = async () => {
     setLoading(true)
     try {
-      await refreshDevices()
       const d = await listDevices()
-      setLocalDevices(d)
+      setDevices(d as any)
+    } catch {
+      // ignore
     } finally { setLoading(false) }
   }
 
-  useEffect(() => { setLocalDevices(devices) }, [devices])
+  useEffect(() => { refresh() }, [])
 
-  const onTransfer = async (id: string) => {
-    setTransfer({ deviceId: id, status: 'transferring' })
+  const doTransfer = async () => {
+    if (!sdkDeviceId) return
+    setStatus('transferring'); setErr(null)
     try {
-      const r = await transferPlayback({ deviceId: id, play: false })
-      setTransfer({ deviceId: id, status: 'done', httpStatus: r.status })
-      await refreshDevices()
+      if (onTransferToSdk) await onTransferToSdk()
+      else await transferPlayback({ deviceId: sdkDeviceId, play: true })
+      setStatus('connected')
+      setTimeout(() => setStatus('idle'), 1500)
+      refresh()
     } catch (e: any) {
-      setTransfer({ deviceId: id, status: 'error', errorKind: e?.kind || 'Unknown', httpStatus: e?.status })
+      setStatus('error'); setErr('Transfer failed')
+      setTimeout(() => setStatus('idle'), 2000)
     }
   }
 
-  const renderStatus = (d: any) => {
-    if (activeDeviceId === d.id) return <span className="flex items-center gap-1 text-[10px] text-emerald-400"><Check size={12}/>Active</span>
-    if (transfer && transfer.deviceId === d.id) {
-      if (transfer.status === 'transferring') return <Loader2 size={14} className="animate-spin text-white/70" />
-      if (transfer.status === 'done') return <span className="text-emerald-400 flex items-center gap-1 text-[10px]"><Check size={12}/>Transferred</span>
-      if (transfer.status === 'error') return <span className="text-red-400 text-[10px] flex items-center gap-1"><AlertTriangle size={12}/>Error</span>
-    }
-    return null
-  }
-
-  const premiumHint = transfer?.status === 'error' && transfer.errorKind === 'PremiumRequired'
-  const inactiveHint = transfer?.status === 'error' && transfer.errorKind === 'NoActiveDevice'
+  const active = devices.find(d => d.is_active)
 
   return (
-    <div className="flex flex-col gap-3 text-xs">
-      <div className="flex items-center justify-between">
-        <span className="font-semibold text-white/80">Devices</span>
-        <div className="flex items-center gap-2">
-          <button onClick={fetchList} className="px-2 py-1 rounded bg-white/10 hover:bg-white/15 text-[11px] flex items-center gap-1"><RefreshCcw size={12}/>Refresh</button>
-          <button onClick={() => setDiagOpen(o=>!o)} className="px-2 py-1 rounded bg-white/10 hover:bg-white/15 text-[11px]">Diag</button>
-        </div>
-      </div>
-      {loading && <div className="flex items-center gap-2 text-white/60 text-[11px]"><Loader2 size={14} className="animate-spin"/>Loading…</div>}
-      {!loading && !localDevices?.length && (
-        <div className="text-white/50 flex flex-col gap-2 items-start">
-          <div className="flex items-center gap-1"><WifiOff size={14}/> No devices.</div>
-          <button onClick={fetchList} className="px-2 py-1 rounded bg-white/10 hover:bg-white/15 text-[11px]">Retry</button>
-        </div>
-      )}
-      <div className="flex flex-col gap-1 max-h-64 overflow-auto pr-1">
-        {localDevices?.map(d => (
-          <button key={d.id} onClick={() => onTransfer(d.id)} className={`group flex items-center justify-between px-2 py-1.5 rounded-md text-left text-white/70 hover:bg-white/10 ${activeDeviceId===d.id ? 'bg-[var(--accent,#1DB954)]/20 text-[var(--accent,#1DB954)]' : ''}`}>
-            <div className="flex flex-col">
-              <span className="truncate max-w-[160px] text-[12px]">{d.name || 'Unnamed'}</span>
-              <span className="text-[10px] opacity-50">{d.type}</span>
-            </div>
-            {renderStatus(d)}
-          </button>
+    <div className="flex items-center gap-2" data-testid="device-picker-root">
+      <select
+        className="h-9 rounded-md bg-white/5 border border-white/10 text-sm px-2"
+        aria-label="Select device"
+        value={active?.id || ''}
+        onChange={() => {/* read-only selection; transfers via button */}}
+      >
+        <option value="" disabled>{loading ? 'Loading…' : (devices.length ? 'Select device' : 'No devices')}</option>
+        {devices.map(d => (
+          <option key={d.id} value={d.id}>{d.name || d.id}{d.is_active ? ' (active)' : ''}{d.id===sdkDeviceId ? ' • this app' : ''}</option>
         ))}
-      </div>
-      {(premiumHint || inactiveHint) && (
-        <div className="text-[11px] leading-relaxed rounded bg-white/5 p-2 border border-white/10 text-amber-200">
-          {premiumHint && 'Spotify Premium is required for in-app playback.'}
-          {inactiveHint && 'Tap play in Spotify once, then click "Transfer" again.'}
-        </div>
-      )}
-      {diagOpen && (
-        <div className="mt-2 p-2 rounded bg-black/40 border border-white/10 font-mono text-[10px] space-y-1">
-          <div>sdkDeviceId: {sdkDeviceId || '-'}</div>
-          <div>activeDeviceId: {activeDeviceId || '-'}</div>
-          <div>devices: {localDevices.map(d=>`${d.id===activeDeviceId?'*':''}${d.name}:${d.is_active?'A':'-'}`).join(', ')}</div>
-          <div>lastTransferStatus: {lastTransferStatus ?? '-'}</div>
-        </div>
-      )}
+      </select>
+      <button
+        type="button"
+        aria-label="Make this app the active device"
+        className="h-9 px-2 rounded-md bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 hover:bg-emerald-500/30 disabled:opacity-60"
+        onClick={doTransfer}
+        disabled={!sdkDeviceId || status==='transferring'}
+        data-testid="transfer-button"
+      >
+        {status==='transferring' ? 'Transferring…' : 'Use this device'}
+      </button>
+      {err && <span className="text-[11px] text-red-400">{err}</span>}
     </div>
   )
 }

@@ -153,13 +153,14 @@ export default function PlayerBar() {
 	const showActivateButton = isAuthed && sdkKnown && !sdkActive
 
 	const transportBtn = (icon: React.ReactElement, label: string, onClick: ()=>void, props: any={}) => (
-		<Tooltip label={label}>
+		<Tooltip label={disabled ? `${label} (unavailable)` : label}>
 			<button
 				type="button"
 				aria-label={label}
 				disabled={disabled}
 				onClick={onClick}
 				className="h-10 w-10 md:h-11 md:w-11 rounded-full flex items-center justify-center bg-white/5 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5 transition focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent,#1DB954)]"
+				data-testid={`control-${label.toLowerCase()}`}
 				{...props}
 			>{icon}</button>
 		</Tooltip>
@@ -222,6 +223,7 @@ export default function PlayerBar() {
 						onMouseMove={onMouseMove}
 						onMouseLeave={clearHover}
 						className={"relative h-6 flex items-center cursor-pointer group outline-none" + (disabled ? ' opacity-40 cursor-not-allowed' : '')}
+						data-testid="timeline-slider"
 					>
 						<div className="w-full h-2 rounded-full bg-white/10 overflow-hidden relative">
 							<div className="absolute inset-y-0 left-0 bg-white/15" style={{ width: `${bufPct*100}%` }} />
@@ -266,6 +268,7 @@ export default function PlayerBar() {
 						onChange={e => setVolume(clamp(Number(e.target.value),0,1))}
 						aria-label="Volume"
 						className="w-24 md:w-32 accent-[var(--accent,#1DB954)] h-2 cursor-pointer"
+						data-testid="volume-slider"
 					/>
 					{/* Devices */}
 					<div className="relative">
