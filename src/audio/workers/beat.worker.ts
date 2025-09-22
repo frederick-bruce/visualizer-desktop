@@ -13,8 +13,8 @@ self.onmessage = async (ev: MessageEvent<any>) => {
     sampleRate = d.sampleRate || sampleRate
     if (!buffer) buffer = chunk
     else {
-      // Concatenate (limit length to ~10s for responsiveness)
-      const maxLen = Math.min((sampleRate * 10)|0, (buffer.length + chunk.length))
+      // Concatenate (limit length to ~6s for responsiveness)
+      const maxLen = Math.min((sampleRate * 6)|0, (buffer.length + chunk.length))
       const next = new Float32Array(Math.min(maxLen, buffer.length + chunk.length))
       const keep = Math.min(buffer.length, next.length - chunk.length)
       next.set(buffer.subarray(buffer.length - keep))
@@ -23,7 +23,7 @@ self.onmessage = async (ev: MessageEvent<any>) => {
     }
     // Periodically compute BPM (every ~1s)
     const now = performance.now()
-    if (buffer && now - lastBpmPost > 1000) {
+    if (buffer && now - lastBpmPost > 1250) {
       try {
         const audioBufferLike: any = {
           sampleRate,

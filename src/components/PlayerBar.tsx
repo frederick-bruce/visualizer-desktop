@@ -146,10 +146,13 @@ export default function PlayerBar() {
 
 	const disabled = !isAuthed
 
-	// Consider active if activeDeviceId or sdkDeviceId matches deviceId
+	// Device status
 	const { sdkDeviceId, activeDeviceId } = store as any
-	const hasActiveDevice = !!(activeDeviceId && sdkDeviceId && activeDeviceId === sdkDeviceId)
-	const noDevice = isAuthed && !hasActiveDevice
+	const anyActiveDevice = !!activeDeviceId
+	const sdkKnown = !!sdkDeviceId
+	const sdkActive = anyActiveDevice && sdkDeviceId && activeDeviceId === sdkDeviceId
+	const showNoActiveBanner = isAuthed && !anyActiveDevice
+	const showActivateButton = isAuthed && sdkKnown && !sdkActive
 
 	const transportBtn = (icon: React.ReactElement, label: string, onClick: ()=>void, props: any={}) => (
 		<Tooltip label={label}>
@@ -188,7 +191,7 @@ export default function PlayerBar() {
 						<div className="text-[11px] leading-tight text-white/60 truncate">{(store.track as any)?.artists || ''}</div>
 					</div>
 				</div>
-						{noDevice && (
+						{showNoActiveBanner && (
 							<div className="absolute -top-6 left-4 text-[11px] px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-200 flex items-center gap-2">
 								<span>No active device</span>
 								<a href="https://open.spotify.com" target="_blank" className="underline hover:text-amber-100">Open Spotify</a>
@@ -241,7 +244,7 @@ export default function PlayerBar() {
 				{/* Right cluster */}
 				<div className="flex items-center gap-3 md:gap-4 order-2 md:order-3 ml-auto">
 					{/* Activate device if not active */}
-					{noDevice && (
+					{showActivateButton && (
 						<Tooltip label="Make this app the active device">
 							<button
 								onClick={async () => { try { if ((store as any).sdkDeviceId) { await transferPlayback({ deviceId: (store as any).sdkDeviceId, play: isPlaying }); (store as any).refreshDevices() } } catch {} }}

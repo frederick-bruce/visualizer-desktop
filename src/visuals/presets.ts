@@ -137,6 +137,8 @@ export class PresetManager {
     this.currentId = id
     this.fadeStart = performance.now()
     this.fadeDur = Math.max(200, Math.min(2000, ms))
+    // Allow onEnter to run for the new preset (even if it ran previously)
+    this.entered.clear()
     this.emit()
   }
 
@@ -199,7 +201,8 @@ export class PresetManager {
     tctxA.clearRect(0,0,w,h); tctxB.clearRect(0,0,w,h)
     // draw current
     if (cur) {
-      if (cur.def.onEnter && !this.entered.has(cur.def.id) && !prv) {
+      // Ensure onEnter for current preset at fade start (even when prev exists)
+      if (cur.def.onEnter && !this.entered.has(cur.def.id)) {
         cur.def.onEnter({ ctx: tctxA as any, width: w, height: h }, cur.values)
         this.entered.add(cur.def.id)
       }
@@ -217,10 +220,6 @@ export class PresetManager {
         // fade done
         this.prevId = null
         prv.def.onExit?.({ ctx: tctxB as any, width: w, height: h })
-        if (cur?.def.onEnter) {
-          cur.def.onEnter({ ctx: tctxA as any, width: w, height: h }, cur.values)
-          this.entered.add(cur.def.id)
-        }
       }
     }
     // composite to target
@@ -285,7 +284,14 @@ const particles: VisualizationPreset = {
   },
   onFrame({ ctx, width, height }, a, api, p) {
     ctx.fillStyle = 'rgba(0,0,0,0.2)'; ctx.fillRect(0,0,width,height)
-    const anyCtx = ctx as any; const parts = anyCtx.__particles as any[]
+    const anyCtx = ctx as any; let parts = anyCtx.__particles as any[]
+    if (!Array.isArray(parts)) {
+      const count = Math.round(p.count)
+      const rng = mulberry32(123)
+      parts = anyCtx.__particles = new Array(count).fill(0).map(() => ({
+        x: rng()*width, y: rng()*height, vx: (rng()-0.5)*0.6, vy: (rng()-0.5)*0.6, life: rng()*1
+      }))
+    }
     const boost = 0.5 + api.modulators.env('bass')
     parts.forEach(pt => {
       pt.x += pt.vx * boost; pt.y += pt.vy * boost

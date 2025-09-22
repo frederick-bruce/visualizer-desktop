@@ -37,6 +37,7 @@ const [viz, setViz] = useState<V.Visualizer>(() => V.bars)
 const timelineRef = useRef<ReturnType<typeof buildTimeline> | null>(null)
 const timeRef = useRef(0)
 const inactive = useVisualizerState(s => s.inactive)
+const beatGateEnabled = useVisualizerState(s => s.beatGateEnabled)
 // Hold latest analysis frame in a ref to avoid stale closures and unnecessary re-renders
 const frameRef = useRef<AnalysisFrame | undefined>(undefined)
 useEffect(() => {
@@ -197,7 +198,7 @@ useEffect(() => {
 									analysis: {
 										rms: intensity,
 										tempoBPM: bpm,
-										onset: f?.onset,
+										onset: beatGateEnabled ? f?.onset : false,
 										bass: f?.bass,
 										mid: f?.mid,
 										treble: f?.treble,

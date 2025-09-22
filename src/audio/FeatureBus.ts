@@ -33,7 +33,7 @@ function softclip01(x: number) {
   return Math.max(0, Math.min(1, y))
 }
 
-export function createFeatureBus(makeSource: AudioSourceFactory): FeatureBus {
+export function createFeatureBus(makeSource: AudioSourceFactory, opts?: { enableBpm?: boolean }): FeatureBus {
   let ctx: AudioContext | null = null
   let sourceNode: AudioNode | null = null
   let cleanupSource: (() => void) | null = null
@@ -43,7 +43,7 @@ export function createFeatureBus(makeSource: AudioSourceFactory): FeatureBus {
   let running = false
 
   const analysisW = new AnalysisWorker()
-  const beatW = new BeatWorker()
+  let beatW: InstanceType<typeof BeatWorker> | null = null
 
   // State
   let emaRms = 0
@@ -113,7 +113,6 @@ export function createFeatureBus(makeSource: AudioSourceFactory): FeatureBus {
   }
 
   analysisW.addEventListener('message', handleAnalysis)
-  beatW.addEventListener('message', handleBeat)
 
   async function start() {
     if (running) return
@@ -139,8 +138,11 @@ export function createFeatureBus(makeSource: AudioSourceFactory): FeatureBus {
       // post to analysis worker
       analysisW.postMessage({ type: 'analyze', samples: timeBuf, sampleRate, nyquist }, [timeBuf.buffer.slice(0)])
       // feed beat worker with latest chunk (copy to avoid detaching timeBuf)
-      const copy = new Float32Array(timeBuf)
-      beatW.postMessage({ type: 'append', samples: copy, sampleRate }, [copy.buffer])
+      if (opts?.enableBpm !== false) {
+        if (!beatW) { beatW = new BeatWorker(); beatW.addEventListener('message', handleBeat) }
+        const copy = new Float32Array(timeBuf)
+        beatW.postMessage({ type: 'append', samples: copy, sampleRate }, [copy.buffer])
+      }
       raf = requestAnimationFrame(loop)
     }
     raf = requestAnimationFrame(loop)
@@ -151,10 +153,11 @@ export function createFeatureBus(makeSource: AudioSourceFactory): FeatureBus {
     if (raf != null) cancelAnimationFrame(raf)
     raf = null
     try { analysisW.terminate() } catch {}
-    try { beatW.terminate() } catch {}
+    try { beatW && beatW.terminate() } catch {}
     try { if (sourceNode) sourceNode.disconnect() } catch {}
     try { if (cleanupSource) cleanupSource() } catch {}
     sourceNode = null; analyser = null; ctx = null
+    beatW = null
   }
 
   function onSnapshot(cb: (f: FeatureSnapshot) => void) {

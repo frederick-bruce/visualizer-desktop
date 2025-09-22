@@ -1,0 +1,6 @@
+:root{--bg:#0a0f12}
+html,body,#root{height:100%}
+body{margin:0;background:var(--bg);}
+.app-grid{display:grid;grid-template-rows:48px 1fr auto;height:100vh;width:100vw}
+.app-main{min-height:0;display:grid;grid-template-columns:auto 1fr}
+.canvas-host{width:100%;height:100%;overflow:hidden;position:relative}

@@ -49,7 +49,10 @@ export function useSpotifyPlayer() {
 				if (!token) return
 				const player = new (window as any).Spotify.Player({
 					name: 'Freddy Visualizer',
-					getOAuthToken: (cb: (t: string) => void) => cb(token),
+					getOAuthToken: async (cb: (t: string) => void) => {
+						try { const fresh = await getAccessToken(); if (fresh) return cb(fresh) } catch {}
+						cb(token)
+					},
 					volume: volume
 				})
 				;(window as any)._player = player
@@ -193,12 +196,23 @@ export function useSpotifyPlayer() {
 	useEffect(() => {
 		if (!accessToken) return
 		let cancelled = false
+		let tries = 0
 		const run = async () => {
 			const start = performance.now()
 			while (!cancelled) {
 				const s = usePlayerStore.getState()
 				if (s.activeDeviceId === s.sdkDeviceId) break
 				if (performance.now() - start > 20_000) break
+				// try a guarded transfer first, then refresh devices
+				if (s.sdkDeviceId) {
+					try {
+						// Attempt a few times to claim the device even if no state events arrive
+						if (tries < 3) {
+							await transferPlayback({ deviceId: s.sdkDeviceId, play: s.isPlaying })
+							tries++
+						}
+					} catch {}
+				}
 				await s.refreshDevices()
 				if (s.activeDeviceId === s.sdkDeviceId) break
 				await new Promise(r => setTimeout(r, 3000 + Math.random()*1500))

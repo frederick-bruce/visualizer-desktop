@@ -31,6 +31,7 @@ type VisualizerState = {
   fps: number
   cpuLoad: number
   spotify: SpotifySlice
+  beatGateEnabled: boolean
   // actions
   setEngineState: (s: EngineState) => void
   setFrame: (f: AnalysisFrame) => void
@@ -40,6 +41,7 @@ type VisualizerState = {
   setParams: (p: Record<string, number>) => void
   setPerf: (fps: number, cpuLoad: number) => void
   setSpotify: (s: Partial<SpotifySlice>) => void
+  toggleBeatGate: () => void
 }
 
 export const useVisualizerState = create<VisualizerState>((set, get) => ({
@@ -52,6 +54,7 @@ export const useVisualizerState = create<VisualizerState>((set, get) => ({
   fps: 0,
   cpuLoad: 0,
   spotify: { isPlaying: false },
+  beatGateEnabled: true,
   setEngineState: (s) => set({ engineState: s }),
   setFrame: (f) => {
     const now = f.nowMs || performance.now()
@@ -63,4 +66,5 @@ export const useVisualizerState = create<VisualizerState>((set, get) => ({
   setParams: (p) => set(s => ({ params: { ...s.params, ...p } })),
   setPerf: (fps, cpuLoad) => set({ fps, cpuLoad }),
   setSpotify: (sli) => set(s => ({ spotify: { ...s.spotify, ...sli } })),
+  toggleBeatGate: () => set(s => ({ beatGateEnabled: !s.beatGateEnabled })),
 }))

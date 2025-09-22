@@ -1,11 +1,13 @@
 import { Outlet, useLocation, useSearchParams } from 'react-router-dom'
 import { useEffect } from 'react'
 import { usePlayerStore } from '@/store/player'
-import PlayerBar from '@/components/PlayerBar'
 import VisualizerCanvas from '@/components/VisualizerCanvas'
-import PresetPicker from '@/components/PresetPicker'
 import SpotifyBridge from '@/components/SpotifyBridge'
 import useLocalAudioAnalyzer from '@/hooks/useLocalAudioAnalyzer'
+import Sidebar from '@/components/Sidebar'
+import NowPlayingBar from '@/components/NowPlayingBar'
+import { useVisualizerState } from '@/state/visualizerStore'
+import '@/styles/app.css'
 
 export default function App() {
   const location = useLocation()
@@ -48,10 +50,31 @@ export default function App() {
     } catch {}
   }, [])
 
+  // Keyboard shortcuts: 1/2/3 switch plugins, B toggle beat gating, F fullscreen
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
+      if (target && (target.closest('input,textarea,[contenteditable="true"]'))) return
+      const key = e.key.toLowerCase()
+      if (key === '1') { (usePlayerStore.getState() as any).setVisualizer('bars') }
+      else if (key === '2') { (usePlayerStore.getState() as any).setVisualizer('wave') }
+      else if (key === '3') { (usePlayerStore.getState() as any).setVisualizer('particles') }
+      else if (key === 'b') { useVisualizerState.getState().toggleBeatGate() }
+      else if (key === 'f') { 
+        const root = document.documentElement
+        const isFs = !!document.fullscreenElement
+        if (!isFs) root.requestFullscreen?.().catch(()=>{})
+        else document.exitFullscreen?.()
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+
   return (
-    <div className="h-screen w-screen grid grid-rows-[auto_1fr_auto] bg-neutral-950 text-neutral-100">
+    <div className="app-grid bg-neutral-950 text-neutral-100">
       <SpotifyBridge />
-      {/* TopNav */}
+      {/* Top bar */}
       <div className="border-b border-neutral-800 px-4 h-12 flex items-center gap-2">
         <div className="font-semibold tracking-wide">Spotify Visualizer</div>
         <nav className="ml-4 flex items-center gap-2 text-sm">
@@ -62,47 +85,19 @@ export default function App() {
       </div>
 
       {/* Page */}
-      <div className="min-h-0">
-        {tab === 'visualizers' && (
-          <div className="h-full grid grid-cols-[300px_1fr] gap-0">
-            {/* Docked left panel column (no overlays) */}
-            <aside className="h-full border-r border-neutral-800 p-3 overflow-auto">
-              <div className="mb-3">
-                <PresetPicker />
-              </div>
-              {/* Reserved space for docked controls (settings/presets lists) */}
-              <div className="text-xs text-neutral-400">
-                Panels are docked here. Use Settings to configure analyzer and rotation.
-              </div>
-            </aside>
-            {/* Canvas column: full-bleed stage */}
-            <section className="h-full min-h-0">
-              <div className="w-full h-full">
-                <VisualizerCanvas />
-              </div>
-            </section>
+      <div className="app-main min-h-0">
+        {/* Sidebar (collapsible) */}
+        <Sidebar />
+        {/* Main canvas area */}
+        <main className="min-h-0">
+          <div className="canvas-host">
+            <VisualizerCanvas />
           </div>
-        )}
-        {tab === 'library' && (
-          <div className="h-full p-6">
-            <div className="text-sm text-neutral-400">Library placeholder</div>
-          </div>
-        )}
-        {tab === 'settings' && (
-          <div className="h-full grid grid-cols-[320px_1fr]">
-            <aside className="h-full border-r border-neutral-800 p-4 overflow-auto">
-              <div className="text-sm text-neutral-300 font-medium mb-2">Settings</div>
-              <div className="text-xs text-neutral-500">Add docked settings controls here.</div>
-            </aside>
-            <section className="p-6 text-sm text-neutral-400">Visualization settings and account controls.</section>
-          </div>
-        )}
+        </main>
       </div>
 
-      {/* PlaybackBar */}
-      <div className="border-t border-neutral-800">
-        <PlayerBar />
-      </div>
+      {/* Now Playing bar (only place with song/artist/time) */}
+      <NowPlayingBar />
     </div>
   )
 }
