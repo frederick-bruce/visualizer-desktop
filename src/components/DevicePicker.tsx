@@ -24,6 +24,11 @@ export default function DevicePicker({ sdkDeviceId, onTransferToSdk }: DevicePic
   }
 
   useEffect(() => { refresh() }, [])
+  // Opportunistic periodic refresh to reflect external changes while the app is open
+  useEffect(() => {
+    const t = setInterval(() => { refresh() }, 5000)
+    return () => clearInterval(t)
+  }, [])
 
   const doTransfer = async () => {
     if (!sdkDeviceId) return
@@ -33,7 +38,7 @@ export default function DevicePicker({ sdkDeviceId, onTransferToSdk }: DevicePic
       else await transferPlayback({ deviceId: sdkDeviceId, play: true })
       setStatus('connected')
       setTimeout(() => setStatus('idle'), 1500)
-      refresh()
+      await refresh()
     } catch (e: any) {
       setStatus('error'); setErr('Transfer failed')
       setTimeout(() => setStatus('idle'), 2000)

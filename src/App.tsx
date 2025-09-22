@@ -1,5 +1,5 @@
 import { Outlet, useLocation, useSearchParams } from 'react-router-dom'
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 import { usePlayerStore } from '@/store/player'
 import VisualizerCanvas from '@/components/VisualizerCanvas'
 import SpotifyBridge from '@/components/SpotifyBridge'
@@ -11,6 +11,7 @@ import VisualLayout from '@/components/VisualLayout'
 import HeaderBar from '@/components/HeaderBar'
 import DevicePicker from '@/components/DevicePicker'
 import { useUiStore } from '@/store/ui'
+import SdkBootstrap from '@/components/SdkBootstrap'
 
 export default function App() {
   const location = useLocation()
@@ -74,23 +75,28 @@ export default function App() {
   }, [])
 
   const drawer = useUiStore()
-  const s = usePlayerStore.getState() as any
-  const track = s.track || {}
+  // Reactive selectors so header updates when store changes
+  const track = usePlayerStore(s => s.track || {}) as any
+  const devices = usePlayerStore(s => s.devices || []) as any[]
+  const activeDeviceId = usePlayerStore(s => s.activeDeviceId || null) as string | null
+  const sdkDeviceId = usePlayerStore(s => s.sdkDeviceId || null) as string | null
+  const deviceName = devices.find(d => d.id === activeDeviceId)?.name
   const header = (
     <HeaderBar
       trackTitle={track.name}
       trackArtist={track.artists}
       artworkUrl={track.albumArt}
-      deviceName={s.devices?.find?.((d:any)=>d.id===s.activeDeviceId)?.name}
-      deviceConnected={!!s.activeDeviceId}
+      deviceName={deviceName}
+      deviceConnected={!!activeDeviceId}
       onToggleSidebar={() => (drawer.drawerOpen ? drawer.closeDrawer() : drawer.openDrawer())}
-      devicePicker={<DevicePicker sdkDeviceId={s.sdkDeviceId || undefined} />}
+      devicePicker={<DevicePicker sdkDeviceId={sdkDeviceId || undefined} />}
     />
   )
   const footer = (<NowPlayingBar />)
 
   return (
     <div className="bg-neutral-950 text-neutral-100">
+      <SdkBootstrap />
       <SpotifyBridge />
       <VisualLayout
         header={header}

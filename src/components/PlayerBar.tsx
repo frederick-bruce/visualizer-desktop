@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { usePlayerStore } from '@/store/player'
 import { clamp, formatTime } from '@/lib/time'
-import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ListMusic, Laptop2, Check } from 'lucide-react'
+import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX } from 'lucide-react'
 import Tooltip from '@/components/ui/Tooltip'
 import { transferPlayback } from '@/lib/spotifyClient'
 
@@ -25,11 +25,7 @@ export default function PlayerBar() {
 	const trackBarRef = useRef<HTMLDivElement | null>(null)
 	const hoverRef = useRef<HTMLDivElement | null>(null)
 	const [hoverTime, setHoverTime] = useState<number | null>(null)
-	const [showDevices, setShowDevices] = useState(false)
-	const [devices, setDevices] = useState<any[]>([])
-	const [loadingDevices, setLoadingDevices] = useState(false)
-	const [deviceError, setDeviceError] = useState<string | null>(null)
-	const [lastTransferredId, setLastTransferredId] = useState<string | null>(null)
+	// Removed duplicate devices UI; single DevicePicker in header is the only source of truth
 	// Current displayed position: prefer optimistic while dragging, else store progressMs
 	const liveProgress = optimisticPos != null ? optimisticPos : (progressMs ?? 0)
 
@@ -126,21 +122,7 @@ export default function PlayerBar() {
 	}, [volume, mute, unmute, setVolume])
 
 	// Devices popover
-	const loadDevices = async () => {
-		if (!isAuthed) return
-		try {
-			setLoadingDevices(true); setDeviceError(null)
-			const token = localStorage.getItem('access_token')
-			if (!token) throw new Error('no token')
-			const j = await fetchDevices(token)
-			setDevices(j.devices || [])
-		} catch (e:any) {
-			setDeviceError('Failed to load devices')
-		} finally { setLoadingDevices(false) }
-	}
-	useEffect(() => { if (showDevices) loadDevices() }, [showDevices])
-
-	const activeDevice = devices.find(d => d.is_active) || null
+	// Devices UI removed from PlayerBar
 
 	const disabled = !isAuthed
 
@@ -149,7 +131,7 @@ export default function PlayerBar() {
 	const anyActiveDevice = !!activeDeviceId
 	const sdkKnown = !!sdkDeviceId
 	const sdkActive = anyActiveDevice && sdkDeviceId && activeDeviceId === sdkDeviceId
-	const showNoActiveBanner = isAuthed && !anyActiveDevice
+	// All device status messaging is centralized in the header; remove extra banners here
 	const showActivateButton = isAuthed && sdkKnown && !sdkActive
 
 	const transportBtn = (icon: React.ReactElement, label: string, onClick: ()=>void, props: any={}) => (
@@ -190,12 +172,7 @@ export default function PlayerBar() {
 						<div className="text-[11px] leading-tight text-white/60 truncate">{(store.track as any)?.artists || ''}</div>
 					</div>
 				</div>
-						{showNoActiveBanner && (
-							<div className="absolute -top-6 left-4 text-[11px] px-2 py-1 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-200 flex items-center gap-2">
-								<span>No active device</span>
-								<a href="https://open.spotify.com" target="_blank" className="underline hover:text-amber-100">Open Spotify</a>
-							</div>
-						)}
+						{/* Device status banner removed (header shows a single source of truth) */}
 				{/* Left cluster */}
 				<div className="flex items-center gap-3 md:gap-4 order-1">
 					{transportBtn(<SkipBack size={18} />, 'Previous', () => prev())}
@@ -270,37 +247,7 @@ export default function PlayerBar() {
 						className="w-24 md:w-32 accent-[var(--accent,#1DB954)] h-2 cursor-pointer"
 						data-testid="volume-slider"
 					/>
-					{/* Devices */}
-					<div className="relative">
-						<Tooltip label="Devices">
-							<button
-								aria-haspopup="dialog"
-								aria-expanded={showDevices}
-								onClick={() => setShowDevices(s => !s)}
-								className="px-2 h-9 rounded-md text-[12px] flex items-center gap-2 bg-white/5 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent)]"
-							><Laptop2 size={16}/><span className="hidden md:inline-block max-w-[120px] truncate text-white/70">{activeDevice?.name || 'Devices'}</span></button>
-						</Tooltip>
-						{showDevices && (
-							<div className="absolute right-0 bottom-full mb-2 w-64 rounded-xl border border-white/10 bg-[#0d1418]/95 backdrop-blur-md shadow-xl p-3 text-xs flex flex-col gap-2 z-50">
-								<div className="flex items-center justify-between">
-									<span className="font-semibold text-white/80 text-sm">Devices</span>
-									<button onClick={() => setShowDevices(false)} className="text-white/40 hover:text-white/70 text-[10px]">Close</button>
-								</div>
-								{loadingDevices && <div className="animate-pulse text-white/60 py-4 text-center">Loading…</div>}
-								{!loadingDevices && !devices.length && <div className="text-white/50 py-1 leading-relaxed">No active devices.<br/><button onClick={loadDevices} className="mt-2 px-2 py-1 rounded bg-white/10 hover:bg-white/15">Refresh</button></div>}
-								{!loadingDevices && devices.map(d => (
-									<button key={d.id} onClick={async () => {
-										try { setDeviceError(null); const r:any = await transferPlayback({ deviceId: d.id, play: false }); setLastTransferredId(d.id); loadDevices(); } catch { setDeviceError('Transfer failed'); }
-									}}
-										className={`flex items-center justify-between px-2 py-1.5 rounded-md text-left hover:bg-white/10 ${d.is_active ? 'bg-[var(--accent,#1DB954)]/25 text-[var(--accent,#1DB954)]' : 'text-white/70'}`}> 
-										<span className="truncate max-w-[140px] flex items-center gap-1">{d.name || 'Unnamed'} {lastTransferredId===d.id && !d.is_active && <Check size={12} className="text-emerald-400"/>}</span>
-										<span className="text-[10px] opacity-70">{d.type}</span>
-									</button>
-								))}
-								{deviceError && <div className="text-red-400 text-[11px]">{deviceError}</div>}
-							</div>
-						)}
-					</div>
+					{/* Devices UI moved to Header DevicePicker */}
 				</div>
 			</div>
 		</div>

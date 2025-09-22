@@ -1,5 +1,6 @@
 import React from 'react'
 import { useUiStore } from '@/store/ui'
+import { usePlayerStore } from '@/store/player'
 
 export type HeaderBarProps = {
   trackTitle?: string
@@ -13,6 +14,8 @@ export type HeaderBarProps = {
 
 export default function HeaderBar({ trackTitle, trackArtist, artworkUrl, deviceName, deviceConnected, onToggleSidebar, devicePicker }: HeaderBarProps) {
   const drawerOpen = useUiStore(s => s.drawerOpen)
+  const isAuthed = usePlayerStore(s => s.isAuthed)
+  const doLogout = usePlayerStore(s => s.logout)
   return (
     <div className="h-12 px-2 md:px-4 flex items-center justify-between gap-2" role="banner">
       {/* Left: mobile sidebar toggle */}
@@ -51,6 +54,17 @@ export default function HeaderBar({ trackTitle, trackArtist, artworkUrl, deviceN
         >
           {deviceConnected ? (deviceName ? `Connected — ${deviceName}` : 'Connected') : 'No active device'}
         </span>
+        {isAuthed && (
+          <button
+            type="button"
+            onClick={doLogout}
+            aria-label="Logout"
+            data-testid="logout-button"
+            className="h-9 px-2 rounded-md bg-red-500/15 text-red-300 border border-red-500/30 hover:bg-red-500/25"
+          >
+            Logout
+          </button>
+        )}
       </div>
     </div>
   )
