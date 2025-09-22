@@ -1,6 +1,5 @@
 import { create } from 'zustand'
 import { initiateAuth, logout as authLogout } from '@/lib/spotifyAuth'
-import { disconnectPlayer } from '@/lib/useSpotifyPlayer'
 import { getAccessToken } from '@/lib/spotifyAuth'
 import { setVolumeDebounced } from '@/lib/spotifyClient'
 
@@ -210,7 +209,7 @@ setReduceMotion: (b) => { set({ reduceMotion: b }); try { localStorage.setItem('
 setStyleMode: (m) => { set({ styleMode: m }); try { localStorage.setItem('styleMode', m) } catch {} },
 setAuthError: (s) => set({ authError: s }),
 login: async () => { try { await initiateAuth(); set({ authError: null }) } catch (err: any) { set({ authError: String(err?.message || err) }); } },
-logout: async () => { await authLogout(); disconnectPlayer(); set({ isAuthed: false, accessToken: null, refreshToken: null, deviceId: null, isPlaying: false, profile: null, playlists: [] }); },
+logout: async () => { await authLogout(); try { (window as any)._player?.disconnect?.() } catch {}; set({ isAuthed: false, accessToken: null, refreshToken: null, deviceId: null, isPlaying: false, profile: null, playlists: [] }); },
 setDeviceId: (id) => set({ deviceId: id }),
 setSdkReady: (id) => set({ sdkDeviceId: id, deviceId: id }),
 setActiveDevice: (id) => set({ activeDeviceId: id }),

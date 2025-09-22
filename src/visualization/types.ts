@@ -9,9 +9,10 @@ export interface VisualizationAudioFrame {
   beat: boolean           // beat event this frame
   beatProgress: number    // 0-1 progress within current beat
   bands: { low: number; mid: number; high: number } // normalized energies
-  fft: Float32Array       // frequency domain magnitudes (0..1 normalized)
-  waveform: Float32Array  // time domain samples -1..1
+  fft?: Float32Array      // frequency domain magnitudes (0..1 normalized)
+  waveform?: Float32Array // time domain samples -1..1
   amplitude: number       // overall loudness (RMS or peak)
+  source?: 'spotify-analysis' | 'webaudio'
 }
 
 // Graphics contexts that a plugin may request/use

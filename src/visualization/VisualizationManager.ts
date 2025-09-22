@@ -228,6 +228,11 @@ export class VisualizationManager {
 
     // Integrate FeatureBus snapshot if available
     let bpm: number | undefined = undefined
+    // Optional melody/timbre features
+    let chroma: number[] | undefined
+    let mfcc: number[] | undefined
+    let pitchHz: number | undefined
+    let pitchConf: number | undefined
     if (this.featureSnap) {
       const f = this.featureSnap
       // amplitude/intensity from RMS
@@ -241,6 +246,11 @@ export class VisualizationManager {
       this.fbBeatDuration = dur
       this.fbBeatProgress = Math.min(1, this.fbBeatProgress + (dt / Math.max(0.001, dur)))
       bpm = f.bpm ?? undefined
+      // expose raw features
+      chroma = Array.isArray(f.chroma) ? f.chroma : undefined
+      mfcc = Array.isArray(f.mfcc) ? f.mfcc : undefined
+      pitchHz = (typeof f.pitchHz === 'number') ? f.pitchHz : undefined
+      pitchConf = (typeof f.pitchConf === 'number') ? f.pitchConf : undefined
       // derive bands from MFCC groupings (low indices ~low freq)
       const mf = Array.isArray(f.mfcc) ? f.mfcc : []
       const seg = (arr: number[], a: number, b: number) => arr.slice(a, b).reduce((s,v)=>s+Math.abs(v),0) / Math.max(1, (b-a))
@@ -262,7 +272,7 @@ export class VisualizationManager {
     if (beat) (this as any)._barPhase = ((this as any)._barPhase + 1/4) % 1
     const barPhase = (this as any)._barPhase
     try {
-      this.plugin.renderFrame({ fft: this.fftData, waveform: this.waveData, dt, time: now, beat, bass, mid, treb, intensity, beatPhase, barPhase, bpm, chorus })
+      this.plugin.renderFrame({ fft: this.fftData, waveform: this.waveData, dt, time: now, beat, bass, mid, treb, intensity, beatPhase, barPhase, bpm, chorus, chroma, mfcc, pitchHz, pitchConf })
     } catch (e) { console.warn('[viz] plugin frame error', e) }
     // Render (plugin may have already drawn; ensure final pass)
     this.renderer.render(this.scene, this.camera)

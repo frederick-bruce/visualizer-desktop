@@ -1,5 +1,7 @@
 import React, { useEffect, useRef } from 'react'
 import VisualizationManager from '@/visualization/VisualizationManager'
+import { useSpotifySync } from '@/hooks/useSpotifySync'
+import { bindSpotifyDriver } from '@/visualization/spotifyDriver'
 import { useVisualizerStore } from '@/stores/visualizerStore'
 import { getAnalyser } from '@/audio/getAnalyser'
 import useFusedBeat from '@/hooks/useFusedBeat'
@@ -60,10 +62,15 @@ export const VisualizationCanvas: React.FC<Props> = ({ debug }) => {
       const mgr = new VisualizationManager()
       managerRef.current = mgr
       await mgr.initialize(containerRef.current, analyser)
+      // Bind Spotify analysis driver (no raw audio path)
+      const player = (window as any)._player
+      const sync = useSpotifySync(player)
+      const unbind = bindSpotifyDriver({ manager: mgr, onVisualTick: sync.onVisualTick })
+      ;(managerRef.current as any)._unbindSpotify = unbind
       if (currentPluginId) await mgr.loadPlugin(currentPluginId)
       mgr.start(); setRunning()
     })()
-    return () => { mounted = false; managerRef.current?.stop(); managerRef.current?.dispose(); setStopped() }
+  return () => { mounted = false; try { (managerRef.current as any)?._unbindSpotify?.() } catch {}; managerRef.current?.stop(); managerRef.current?.dispose(); setStopped() }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 

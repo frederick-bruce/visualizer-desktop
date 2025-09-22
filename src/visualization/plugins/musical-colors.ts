@@ -72,7 +72,7 @@ export const musicalColors: VisualizationPlugin = (() => {
       }
       root.add(orbiters)
     },
-    renderFrame({ fft, dt, time, beat, bass, mid, treb, intensity, beatPhase, barPhase, chorus }) {
+    renderFrame({ fft, dt, time, beat, bass, mid, treb, intensity, beatPhase, barPhase, chorus, chroma, pitchHz, pitchConf }) {
       if (!shell || !shell.material || !orbiters || !orbitData) return
       const mat = shell.material
       // Fallback if extended metrics undefined
@@ -80,7 +80,12 @@ export const musicalColors: VisualizationPlugin = (() => {
   const mVal = mid  ?? (bandAverage(fft, fft.length*0.1|0, fft.length*0.4|0) / 255)
   const t = treb ?? (bandAverage(fft, fft.length*0.4|0, fft.length) / 255)
   const inten = intensity ?? (b*0.5 + mVal*0.3 + t*0.2)
-  hueShift += dt * (0.05 + t*0.4 + (chorus?0.2:0))
+      // Melody-aware hue: base drift + chroma-weighted tone angle + subtle pitch wobble
+      const chromaHue = Array.isArray(chroma) && chroma.length >= 12
+        ? (chroma.reduce((acc, v, i) => acc + v * (i / 12), 0) / Math.max(1e-6, chroma.reduce((a,b)=>a+b,0)))
+        : 0
+      const pitchWobble = (typeof pitchHz === 'number' && typeof pitchConf === 'number') ? (Math.sin(time * (pitchHz/20)) * 0.005 * Math.min(1, Math.max(0, pitchConf))) : 0
+      hueShift += dt * (0.05 + t*0.4 + (chorus?0.2:0)) + chromaHue * 0.02 + pitchWobble
       const uniforms = mat.uniforms as any
       uniforms.u_time.value = time
       uniforms.u_bass.value = b
@@ -90,9 +95,11 @@ export const musicalColors: VisualizationPlugin = (() => {
       uniforms.u_hue.value = hueShift
       // Scale & slight rotation
   const barMod = barPhase !== undefined ? (0.4 + 0.6*Math.sin(barPhase*Math.PI*2)) : 1
-  shell.rotation.y += dt * (0.2 + mVal*1.2) * barMod
+      shell.rotation.y += dt * (0.2 + mVal*1.2) * barMod
       shell.rotation.x += dt * (0.1 + t*0.8)
-      const targetScale = 1.0 + b*0.5 + (beat?0.25:0) + (chorus?0.15:0)
+      // Slightly enlarge with high pitch confidence to reflect melodic clarity
+      const pitchScale = (typeof pitchConf === 'number') ? (0.05 * Math.min(1, Math.max(0, pitchConf))) : 0
+      const targetScale = 1.0 + b*0.5 + (beat?0.25:0) + (chorus?0.15:0) + pitchScale
       shell.scale.lerp(new THREE.Vector3(targetScale,targetScale,targetScale), 1 - Math.exp(-dt/0.25))
       // Update orbiters
   const mat4 = new THREE.Matrix4()

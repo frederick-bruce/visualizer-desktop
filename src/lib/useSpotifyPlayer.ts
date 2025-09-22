@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { usePlayerStore } from '@/store/player'
 import { getAccessToken } from './spotifyAuth'
 import { transferPlayback, listDevices, SpotifyClient } from './spotifyClient'
+import { usePlayerCoreStore } from '@/state/playerStore'
 
 export function disconnectPlayer() { (window as any)._player?.disconnect?.() }
 
@@ -56,6 +57,7 @@ export function useSpotifyPlayer() {
 					volume: volume
 				})
 				;(window as any)._player = player
+                try { usePlayerCoreStore.getState().setPlayer(player); usePlayerCoreStore.getState().setToken(token) } catch {}
 
 				const store = () => usePlayerStore.getState()
 

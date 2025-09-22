@@ -1,5 +1,4 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { useSpotifyPlayer } from '@/lib/useSpotifyPlayer'
 import { usePlayerStore } from '@/store/player'
 import { clamp, formatTime } from '@/lib/time'
 import { Play, Pause, SkipBack, SkipForward, Volume2, VolumeX, ListMusic, Laptop2, Check } from 'lucide-react'
@@ -16,7 +15,6 @@ async function fetchDevices(token: string) {
 // legacy helper removed; using transferPlayback
 
 export default function PlayerBar() {
-	useSpotifyPlayer()
 	const store = usePlayerStore()
 	const { isAuthed, isPlaying, volume, setVolume, mute, unmute, login, authError, play, pause, next, prev, seek, deviceId } = store as any
 	const { progressMs, durationMs, bufferedMs, setFromSdk } = store as any

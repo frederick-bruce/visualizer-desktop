@@ -24,6 +24,11 @@ export interface VisualizationPlugin {
     barPhase?: number  // 0..1 progress within current bar/measure
     bpm?: number
     chorus?: boolean // heuristic large-scale energy lift
+    // New: melody/timbre features from FeatureBus (optional)
+    chroma?: number[] // length ~12, pitch class energy
+    mfcc?: number[]   // e.g., 13 coefficients
+    pitchHz?: number
+    pitchConf?: number // 0..1 confidence
   }): void
   dispose(): void
 }

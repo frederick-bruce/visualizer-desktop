@@ -199,6 +199,21 @@ export async function ensureActiveDevice(): Promise<boolean> {
   try { await transferPlaybackTo(singleton!.deviceId, true); return true } catch { return false }
 }
 
+// Thin wrapper for Web Playback SDK getCurrentState()
+export async function readState(player: any): Promise<{ position: number; duration: number; paused: boolean; trackId: string | null } | null> {
+  if (!player || !player.getCurrentState) return null
+  try {
+    const s = await player.getCurrentState()
+    if (!s) return null
+    const current = (s as any).track_window?.current_track
+    const id = current?.id || null
+    const duration = (s as any).duration || current?.duration_ms || 0
+    return { position: (s as any).position || 0, duration, paused: !!(s as any).paused, trackId: id }
+  } catch {
+    return null
+  }
+}
+
 async function reinitPlayer(): Promise<void> {
   if (!lastInitOpts) return
   try { singleton?.player.disconnect() } catch {}
